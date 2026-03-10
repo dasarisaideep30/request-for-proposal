@@ -3,6 +3,6 @@
     "version": "1.0.0",
     "private": true,
     "scripts": {
-        "vercel-build": "cd frontend && npm install && npm run build"
+        "vercel-build": "cd frontend && npm install && chmod +x node_modules/.bin/vite && npm run build"
     }
 }
