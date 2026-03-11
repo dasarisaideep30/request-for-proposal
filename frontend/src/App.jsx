@@ -7,7 +7,7 @@ import { useState, useEffect, createContext, useContext } from 'react';
 import { BarChart3, FileText, CheckSquare, Bell, LogOut, Home, Plus, AlertTriangle, TrendingUp, DollarSign, Clock, Target, Trash2, Edit2 } from 'lucide-react';
 
 // API Configuration
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
 // ============================================
 // AUTHENTICATION CONTEXT
