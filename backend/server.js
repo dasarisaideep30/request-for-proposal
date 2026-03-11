@@ -1,5 +1,5 @@
 /**
- * Deloitte RFP Command Center - Main Server
+ * RFP Command Center - Main Server
  * Enterprise-grade Node.js/Express Backend
  */
 
@@ -49,7 +49,7 @@ app.use('/api/', limiter);
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
-    service: 'Deloitte RFP Command Center API',
+    service: 'RFP Command Center API',
     timestamp: new Date().toISOString()
   });
 });
@@ -96,7 +96,7 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log('==============================================');
-  console.log('🚀 Deloitte RFP Command Center API');
+  console.log('🚀 RFP Command Center API');
   console.log('==============================================');
   console.log(`📡 Server running on port ${PORT}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);

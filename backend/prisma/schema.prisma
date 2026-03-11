@@ -1,4 +1,4 @@
-// Deloitte RFP Command Center - Enterprise Database Schema
+// RFP Command Center - Enterprise Database Schema
 // PostgreSQL with Prisma ORM
 
 generator client {

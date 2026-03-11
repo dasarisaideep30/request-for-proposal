@@ -1,10 +1,10 @@
 /**
- * Deloitte RFP Command Center - Enterprise Styles
+ * RFP Command Center - Enterprise Styles
  * Professional, clean, corporate design system
  */
 
 :root {
-  /* Brand Colors - Deloitte Professional Palette */
+  /* Brand Colors - Professional Palette */
   --color-primary: #1e3a8a;       /* Navy Blue - Trust, Authority */
   --color-primary-light: #3b82f6;
   --color-primary-dark: #1e40af;

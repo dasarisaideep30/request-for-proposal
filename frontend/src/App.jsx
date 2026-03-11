@@ -1,5 +1,5 @@
 /**
- * Deloitte RFP Command Center - Frontend Application
+ * RFP Command Center - Frontend Application
  * Enterprise-Grade React Application with Full Feature Set
  */
 
@@ -183,7 +183,7 @@ const LoginPage = () => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-header">
-          <h1 className="login-title">Deloitte RFP Command Center</h1>
+          <h1 className="login-title">RFP Command Center</h1>
           <p className="login-subtitle">Enterprise Proposal Management System</p>
         </div>
 
@@ -195,7 +195,7 @@ const LoginPage = () => {
               className="form-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="your.email@deloitte.com"
+              placeholder="your.email@example.com"
               required
             />
           </div>
@@ -232,7 +232,7 @@ const LoginPage = () => {
 
         <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#f1f5f9', borderRadius: '0.5rem' }}>
           <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 600 }}>Demo Credentials:</p>
-          <p style={{ fontSize: '0.8rem', color: '#475569' }}>📧 sarah.johnson@deloitte.com</p>
+          <p style={{ fontSize: '0.8rem', color: '#475569' }}>📧 sarah.johnson@example.com</p>
           <p style={{ fontSize: '0.8rem', color: '#475569' }}>🔑 password123</p>
         </div>
       </div>
@@ -1231,7 +1231,7 @@ const AppLayout = () => {
     <div className="app-container">
       <aside className="sidebar">
         <div className="sidebar-header">
-          <h1 className="sidebar-logo">Deloitte</h1>
+          <h1 className="sidebar-logo">RFP Command Center</h1>
           <p className="sidebar-subtitle">RFP Command Center</p>
         </div>
 

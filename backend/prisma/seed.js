@@ -30,7 +30,7 @@ async function main() {
     // Proposal Managers
     prisma.user.create({
       data: {
-        email: 'sarah.johnson@deloitte.com',
+        email: 'sarah.johnson@example.com',
         password: hashedPassword,
         firstName: 'Sarah',
         lastName: 'Johnson',
@@ -39,7 +39,7 @@ async function main() {
     }),
     prisma.user.create({
       data: {
-        email: 'michael.chen@deloitte.com',
+        email: 'michael.chen@example.com',
         password: hashedPassword,
         firstName: 'Michael',
         lastName: 'Chen',
@@ -50,7 +50,7 @@ async function main() {
     // Solution Architects
     prisma.user.create({
       data: {
-        email: 'david.kumar@deloitte.com',
+        email: 'david.kumar@example.com',
         password: hashedPassword,
         firstName: 'David',
         lastName: 'Kumar',
@@ -59,7 +59,7 @@ async function main() {
     }),
     prisma.user.create({
       data: {
-        email: 'emily.rodriguez@deloitte.com',
+        email: 'emily.rodriguez@example.com',
         password: hashedPassword,
         firstName: 'Emily',
         lastName: 'Rodriguez',
@@ -70,7 +70,7 @@ async function main() {
     // Leadership
     prisma.user.create({
       data: {
-        email: 'robert.williams@deloitte.com',
+        email: 'robert.williams@example.com',
         password: hashedPassword,
         firstName: 'Robert',
         lastName: 'Williams',
@@ -81,7 +81,7 @@ async function main() {
     // Bid Reviewer
     prisma.user.create({
       data: {
-        email: 'jennifer.taylor@deloitte.com',
+        email: 'jennifer.taylor@example.com',
         password: hashedPassword,
         firstName: 'Jennifer',
         lastName: 'Taylor',
@@ -255,7 +255,7 @@ async function main() {
 
   console.log('\n🎉 Database seeded successfully!');
   console.log('\n📧 Demo User Credentials:');
-  console.log('   Email: sarah.johnson@deloitte.com');
+  console.log('   Email: sarah.johnson@example.com');
   console.log('   Password: password123');
   console.log('   Role: Proposal Manager\n');
 }

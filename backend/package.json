@@ -1,7 +1,7 @@
 {
   "name": "deloitte-rfp-backend",
   "version": "1.0.0",
-  "description": "Deloitte RFP Command Center - Enterprise Backend API",
+  "description": "RFP Command Center - Enterprise Backend API",
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
