@@ -17,8 +17,22 @@ const analyzeRFP = async (req, res) => {
       const mimetype = req.file.mimetype;
 
       if (mimetype === 'application/pdf') {
-        const data = await pdf(buffer);
-        documentText = data.text;
+        try {
+          if (typeof pdf === 'function') {
+            const data = await pdf(buffer);
+            documentText = data.text;
+          } else if (pdf.PDFParse) {
+            const parser = new pdf.PDFParse({ data: buffer });
+            const result = await parser.getText();
+            documentText = result.text;
+            await parser.destroy();
+          } else {
+            throw new Error('PDF parsing library not initialized correctly');
+          }
+        } catch (pdfError) {
+          console.error('PDF parsing error:', pdfError);
+          throw new Error(`Failed to parse PDF: ${pdfError.message}`);
+        }
       } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         const data = await mammoth.extractRawText({ buffer });
         documentText = data.value;
