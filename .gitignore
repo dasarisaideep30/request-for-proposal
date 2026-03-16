@@ -11,3 +11,5 @@ yarn-error.log*
 .DS_Store
 f:/rfp/deloitte files
 deployment_log.txt
+
+.vercel

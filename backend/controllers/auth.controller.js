@@ -102,6 +102,7 @@ const register = async (req, res) => {
  * POST /api/auth/login
  */
 const login = async (req, res) => {
+  console.log(`[DEBUG] Login attempt for: ${req.body?.email}`);
   try {
     const { email, password } = req.body;
 

@@ -1,3 +1,4 @@
+console.log('[DEBUG] Server starting up...');
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -66,6 +67,7 @@ app.get('/health', (req, res) => {
 // ============================================
 
 // Standard prefix routes
+console.log('[DEBUG] Registering /api/auth routes');
 app.use('/api/auth', authRoutes);
 app.use('/api/rfps', rfpRoutes);
 app.use('/api/tasks', taskRoutes);
