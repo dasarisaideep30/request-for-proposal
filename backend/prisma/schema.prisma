@@ -1,0 +1,293 @@
+// RFP Command Center - Enterprise Database Schema
+// PostgreSQL with Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MANAGEMENT & AUTHENTICATION
+// ============================================
+
+enum UserRole {
+  ADMIN              // Master Admin - full access
+  PROPOSAL_MANAGER  // Manager - view their own
+  SOLUTION_ARCHITECT // Contributor - assigned RFPs
+  LEADERSHIP        // Executive - read-only
+  BID_REVIEWER      // Approval role
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password      String   // Hashed
+  firstName     String
+  lastName      String
+  role          UserRole @default(SOLUTION_ARCHITECT)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  managedRFPs   RFP[]           @relation("ProposalManager")
+  assignedRFPs  RFP[]           @relation("AssignedArchitect")
+  tasks         Task[]
+  approvals     Approval[]
+  activityLogs  ActivityLog[]
+  notifications Notification[]
+
+  @@index([email])
+  @@index([role])
+}
+
+// ============================================
+// RFP LIFECYCLE MANAGEMENT
+// ============================================
+
+enum RFPStatus {
+  INTAKE
+  QUALIFICATION
+  PLANNING
+  IN_PROGRESS
+  REVIEW
+  APPROVED
+  REJECTED
+  SUBMITTED
+  LOST
+  WON
+}
+
+enum RiskLevel {
+  GREEN
+  AMBER
+  RED
+}
+
+enum GoNoGoDecision {
+  PENDING
+  GO
+  NO_GO
+}
+
+model RFP {
+  id                    String          @id @default(uuid())
+  rfpNumber             String          @unique
+  clientName            String
+  industry              String
+  projectTitle          String
+  executiveSummary      String?         @db.Text
+  submissionDeadline    DateTime
+  estimatedDealValue    Decimal         @db.Decimal(12, 2)
+  status                RFPStatus       @default(INTAKE)
+  riskLevel             RiskLevel       @default(GREEN)
+  goNoGoDecision        GoNoGoDecision  @default(PENDING)
+  completionPercentage  Int             @default(0)
+  
+  // Ownership
+  proposalManagerId     String
+  proposalManager       User            @relation("ProposalManager", fields: [proposalManagerId], references: [id])
+  
+  solutionArchitectId   String?
+  solutionArchitect     User?           @relation("AssignedArchitect", fields: [solutionArchitectId], references: [id])
+
+  // Timestamps
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  submittedAt           DateTime?
+  wonLostAt             DateTime?
+
+  // Relations
+  tasks                 Task[]
+  milestones            Milestone[]
+  approvals             Approval[]
+  activityLogs          ActivityLog[]
+  notifications         Notification[]
+
+  @@index([status])
+  @@index([riskLevel])
+  @@index([submissionDeadline])
+  @@index([proposalManagerId])
+  @@index([solutionArchitectId])
+}
+
+// ============================================
+// TASK & OWNERSHIP GOVERNANCE
+// ============================================
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+}
+
+model Task {
+  id              String      @id @default(uuid())
+  title           String
+  description     String?     @db.Text
+  dueDate         DateTime
+  status          TaskStatus  @default(NOT_STARTED)
+  isOverdue       Boolean     @default(false)
+  isEscalated     Boolean     @default(false) // >48hrs overdue
+  
+  // Single owner enforcement
+  ownerId         String
+  owner           User        @relation(fields: [ownerId], references: [id])
+  
+  rfpId           String
+  rfp             RFP         @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  completedAt     DateTime?
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([isOverdue])
+  @@index([ownerId])
+  @@index([rfpId])
+}
+
+// ============================================
+// MILESTONE ENGINE
+// ============================================
+
+enum MilestoneType {
+  KICKOFF
+  DRAFT_1
+  INTERNAL_REVIEW
+  FINAL_REVIEW
+  SUBMISSION
+}
+
+model Milestone {
+  id              String        @id @default(uuid())
+  type            MilestoneType
+  title           String
+  targetDate      DateTime
+  completedDate   DateTime?
+  isCompleted     Boolean       @default(false)
+  isDelayed       Boolean       @default(false)
+  
+  rfpId           String
+  rfp             RFP           @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([rfpId])
+  @@index([targetDate])
+  @@index([isCompleted])
+}
+
+// ============================================
+// APPROVAL WORKFLOW
+// ============================================
+
+enum ApprovalType {
+  DRAFT_APPROVAL
+  FINAL_APPROVAL
+  GO_NO_GO
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Approval {
+  id              String          @id @default(uuid())
+  type            ApprovalType
+  status          ApprovalStatus  @default(PENDING)
+  comments        String?         @db.Text
+  
+  reviewerId      String
+  reviewer        User            @relation(fields: [reviewerId], references: [id])
+  
+  rfpId           String
+  rfp             RFP             @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime        @default(now())
+  decidedAt       DateTime?
+
+  @@index([rfpId])
+  @@index([reviewerId])
+  @@index([status])
+}
+
+// ============================================
+// AUDIT COMPLIANCE - ACTIVITY LOGGING
+// ============================================
+
+enum ActivityAction {
+  RFP_CREATED
+  RFP_UPDATED
+  TASK_CREATED
+  TASK_ASSIGNED
+  TASK_UPDATED
+  STATUS_CHANGED
+  APPROVAL_REQUESTED
+  APPROVAL_DECIDED
+  RISK_ESCALATED
+  MILESTONE_COMPLETED
+}
+
+model ActivityLog {
+  id              String          @id @default(uuid())
+  action          ActivityAction
+  description     String
+  entityType      String          // "RFP", "Task", "Approval"
+  entityId        String
+  
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  
+  rfpId           String?
+  rfp             RFP?            @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime        @default(now())
+
+  @@index([rfpId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
+
+// ============================================
+// NOTIFICATION SYSTEM
+// ============================================
+
+enum NotificationType {
+  TASK_ASSIGNED
+  DEADLINE_APPROACHING
+  RISK_ESCALATED
+  APPROVAL_REQUESTED
+  STATUS_CHANGED
+}
+
+model Notification {
+  id              String            @id @default(uuid())
+  type            NotificationType
+  title           String
+  message         String
+  isRead          Boolean           @default(false)
+  
+  userId          String
+  user            User              @relation(fields: [userId], references: [id])
+  
+  rfpId           String?
+  rfp             RFP?              @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime          @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}

@@ -1,0 +1,38 @@
+{
+  "name": "deloitte-rfp-backend",
+  "version": "1.0.0",
+  "description": "Enterprise RFP Command Center - Backend API",
+  "main": "app.js",
+  "scripts": {
+    "dev": "node scripts/clear-port.js 5000 && nodemon app.js",
+    "start": "node app.js",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "node prisma/seed.js",
+    "prisma:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@google/genai": "^1.44.0",
+    "@prisma/client": "^6.19.2",
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "csv-string": "^4.1.1",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1",
+    "groq-sdk": "^1.1.1",
+    "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.11.0",
+    "multer": "^2.1.1",
+    "openai": "^6.29.0",
+    "pdf-parse": "^2.4.5",
+    "serverless-http": "^4.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "prisma": "^6.19.2"
+  }
+}
