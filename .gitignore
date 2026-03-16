@@ -11,5 +11,15 @@ yarn-error.log*
 .DS_Store
 f:/rfp/deloitte files
 deployment_log.txt
+add_env_vercel.js
+.env.vercel
+backend/*.js
+!backend/app.js
+!backend/prismaClient.js
+!backend/controllers/*.js
+!backend/routes/*.js
+!backend/middleware/*.js
+!backend/utils/*.js
+!backend/prisma/*.js
 
 .vercel

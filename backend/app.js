@@ -1,3 +1,5 @@
+require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
+
 console.log('[DEBUG] Server starting up...');
 const express = require('express');
 const cors = require('cors');
@@ -8,6 +10,10 @@ const path = require('path');
 // Polyfill for pdf-parse in serverless environments
 if (typeof global.DOMMatrix === 'undefined') {
     global.DOMMatrix = class DOMMatrix {};
+}
+
+if (!process.env.JWT_SECRET) {
+  console.error('[CRITICAL]: JWT_SECRET is not defined in environment variables!');
 }
 
 // Route imports
@@ -55,6 +61,16 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     service: 'RFP Command Center API',
     timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/api/test-env', (req, res) => {
+  res.json({
+    DATABASE_URL: !!process.env.DATABASE_URL,
+    JWT_SECRET: !!process.env.JWT_SECRET,
+    GROQ_API_KEY: !!process.env.GROQ_API_KEY,
+    GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
+    NODE_ENV: process.env.NODE_ENV
   });
 });
 
@@ -111,11 +127,12 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  console.error('[CRITICAL ERROR]:', err);
 
   res.status(err.status || 500).json({
     error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    stack: err.stack,
+    details: 'Exposed for debugging'
   });
 });
 
@@ -124,7 +141,6 @@ app.use((err, req, res, next) => {
 // ============================================
 
 if (require.main === module) {
-  require('dotenv').config();
   const PORT = process.env.PORT || 5000;
   const server = app.listen(PORT, () => {
     console.log('==============================================');

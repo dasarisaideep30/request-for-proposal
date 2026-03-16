@@ -1,0 +1,14 @@
+{
+  "name": "deloitte-rfp-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "build:backend": "cd backend && npm install && npx prisma generate",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build": "npm run build:backend && npm run build:frontend"
+  }
+}
