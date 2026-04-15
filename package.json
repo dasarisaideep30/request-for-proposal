@@ -1,8 +1,14 @@
 {
-    "name": "deloitte-rfp-command-center",
-    "version": "1.0.0",
-    "private": true,
-    "scripts": {
-        "vercel-build": "cd backend && npm install && npx prisma generate && cd ../frontend && npm install && chmod +x node_modules/.bin/vite && npm run build"
-    }
+  "name": "rfp-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "build:backend": "cd backend && npm install && npx prisma generate",
+    "build:frontend": "cd frontend && npm install && npm run build",
+    "build": "npm run build:backend && npm run build:frontend"
+  }
 }

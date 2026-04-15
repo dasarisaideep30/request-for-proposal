@@ -5,64 +5,35 @@
 
 /**
  * Calculate risk level for an RFP
- * @param {Object} rfp - RFP object with tasks and milestones
+ * @param {Object} rfp - RFP object
  * @returns {String} - 'GREEN', 'AMBER', or 'RED'
  */
-function calculateRiskLevel(rfp, tasks = [], milestones = []) {
-  let riskScore = 0;
-
-  // Factor 1: Deadline proximity (0-30 points)
-  const daysUntilDeadline = Math.floor(
-    (new Date(rfp.submissionDeadline) - new Date()) / (1000 * 60 * 60 * 24)
-  );
+function calculateRiskLevel(rfp) {
+  const deadline = new Date(rfp.submissionDeadline);
+  const today = new Date();
   
-  if (daysUntilDeadline < 0) {
-    riskScore += 30; // Deadline passed
-  } else if (daysUntilDeadline <= 3) {
-    riskScore += 25;
-  } else if (daysUntilDeadline <= 7) {
-    riskScore += 15;
-  } else if (daysUntilDeadline <= 14) {
-    riskScore += 5;
-  }
-
-  // Factor 2: Incomplete tasks percentage (0-30 points)
-  if (tasks.length > 0) {
-    const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length;
-    const incompletePct = ((tasks.length - completedTasks) / tasks.length) * 100;
-    
-    if (incompletePct > 75) {
-      riskScore += 30;
-    } else if (incompletePct > 50) {
-      riskScore += 20;
-    } else if (incompletePct > 25) {
-      riskScore += 10;
-    }
-  }
-
-  // Factor 3: Overdue milestones (0-25 points)
-  const now = new Date();
-  const overdueMilestones = milestones.filter(m => 
-    !m.isCompleted && new Date(m.targetDate) < now
-  );
+  // Normalize dates to start of day for accurate comparison
+  const d1 = new Date(deadline.getFullYear(), deadline.getMonth(), deadline.getDate());
+  const d2 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   
-  if (overdueMilestones.length > 0) {
-    riskScore += Math.min(25, overdueMilestones.length * 10);
-  }
+  const daysUntilDeadline = Math.floor((d1 - d2) / (1000 * 60 * 60 * 24));
+  const rfpValue = Number(rfp.estimatedDealValue) || 0;
 
-  // Factor 4: No assigned solution architect (15 points)
-  if (!rfp.solutionArchitectId) {
-    riskScore += 15;
-  }
-
-  // Determine risk level based on total score
-  if (riskScore >= 50) {
+  // Rule 1: High Value Factor (> $5M) - High value deals are automatically elevated if nearing deadline
+  // Rule 2: Aging Factor (1-5 RED, 5-15 AMBER, >15 GREEN)
+  
+  if (daysUntilDeadline <= 5) {
     return 'RED';
-  } else if (riskScore >= 25) {
-    return 'AMBER';
-  } else {
-    return 'GREEN';
   }
+  
+  // If value is very high (>5M), we move Amber threshold to 20 days instead of 15
+  const amberThreshold = rfpValue > 5000000 ? 20 : 15;
+  
+  if (daysUntilDeadline <= amberThreshold) {
+    return 'AMBER';
+  }
+
+  return 'GREEN';
 }
 
 /**
@@ -72,24 +43,15 @@ function calculateRiskLevel(rfp, tasks = [], milestones = []) {
  * @returns {Number} - Percentage (0-100)
  */
 function calculateCompletionPercentage(tasks = [], milestones = []) {
-  let totalWeight = 0;
-  let completedWeight = 0;
+  if (tasks.length === 0 && milestones.length === 0) return 0;
 
-  // Tasks contribute 70% of completion
-  if (tasks.length > 0) {
-    const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length;
-    totalWeight += 70;
-    completedWeight += (completedTasks / tasks.length) * 70;
-  }
-
-  // Milestones contribute 30% of completion
-  if (milestones.length > 0) {
-    const completedMilestones = milestones.filter(m => m.isCompleted).length;
-    totalWeight += 30;
-    completedWeight += (completedMilestones / milestones.length) * 30;
-  }
-
-  return totalWeight > 0 ? Math.round(completedWeight) : 0;
+  const totalItems = tasks.length + milestones.length;
+  const completedTasks = tasks.filter(t => t.status === 'COMPLETED').length;
+  const completedMilestones = milestones.filter(m => m.isCompleted).length;
+  
+  const totalCompleted = completedTasks + completedMilestones;
+  
+  return Math.round((totalCompleted / totalItems) * 100);
 }
 
 /**
@@ -102,9 +64,9 @@ function checkTaskOverdue(task) {
   const dueDate = new Date(task.dueDate);
   const isOverdue = now > dueDate && task.status !== 'COMPLETED';
   
-  // Escalate if overdue by more than 48 hours
+  // Escalate if overdue by more than 24 hours
   const hoursOverdue = (now - dueDate) / (1000 * 60 * 60);
-  const isEscalated = isOverdue && hoursOverdue > 48;
+  const isEscalated = isOverdue && hoursOverdue > 24;
 
   return { isOverdue, isEscalated };
 }

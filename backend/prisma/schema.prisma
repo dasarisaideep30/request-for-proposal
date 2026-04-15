@@ -2,7 +2,9 @@
 // PostgreSQL with Prisma ORM
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  engineType    = "library"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -14,7 +16,13 @@ datasource db {
 // USER MANAGEMENT & AUTHENTICATION
 // ============================================
 
-// UserRole strings: PROPOSAL_MANAGER, SOLUTION_ARCHITECT, LEADERSHIP, BID_REVIEWER
+enum UserRole {
+  ADMIN              // Master Admin - full access
+  CO_ADMIN           // Delegate Admin - subset of control
+  PROPOSAL_MANAGER  // Manager - view their own
+  SOLUTION_ARCHITECT // Contributor - assigned RFPs
+  LEADERSHIP        // Executive - read-only
+}
 
 model User {
   id            String   @id @default(uuid())
@@ -22,7 +30,7 @@ model User {
   password      String   // Hashed
   firstName     String
   lastName      String
-  role          String   @default("SOLUTION_ARCHITECT")
+  role          UserRole @default(SOLUTION_ARCHITECT)
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -30,6 +38,7 @@ model User {
   // Relations
   managedRFPs   RFP[]           @relation("ProposalManager")
   assignedRFPs  RFP[]           @relation("AssignedArchitect")
+  delegatedRFPs RFP[]           @relation("CoAdminDelegate")
   tasks         Task[]
   approvals     Approval[]
   activityLogs  ActivityLog[]
@@ -43,11 +52,31 @@ model User {
 // RFP LIFECYCLE MANAGEMENT
 // ============================================
 
-// RFPStatus strings: INTAKE, QUALIFICATION, PLANNING, IN_PROGRESS, REVIEW, APPROVED, SUBMITTED, LOST, WON
+enum RFPStatus {
+  INTAKE
+  QUALIFICATION
+  PLANNING
+  IN_PROGRESS
+  REVIEW
+  APPROVED
+  REJECTED
+  SUBMITTED
+  LOST
+  WON
+  TECHNICAL_FIX
+}
 
-// RiskLevel strings: GREEN, AMBER, RED
+enum RiskLevel {
+  GREEN
+  AMBER
+  RED
+}
 
-// GoNoGoDecision strings: PENDING, GO, NO_GO
+enum GoNoGoDecision {
+  PENDING
+  GO
+  NO_GO
+}
 
 model RFP {
   id                    String          @id @default(uuid())
@@ -55,12 +84,12 @@ model RFP {
   clientName            String
   industry              String
   projectTitle          String
-  executiveSummary      String?
+  executiveSummary      String?         @db.Text
   submissionDeadline    DateTime
-  estimatedDealValue    Float
-  status                String          @default("INTAKE")
-  riskLevel             String          @default("GREEN")
-  goNoGoDecision        String          @default("PENDING")
+  estimatedDealValue    Decimal         @db.Decimal(12, 2)
+  status                RFPStatus       @default(INTAKE)
+  riskLevel             RiskLevel       @default(GREEN)
+  goNoGoDecision        GoNoGoDecision  @default(PENDING)
   completionPercentage  Int             @default(0)
   
   // Ownership
@@ -69,6 +98,9 @@ model RFP {
   
   solutionArchitectId   String?
   solutionArchitect     User?           @relation("AssignedArchitect", fields: [solutionArchitectId], references: [id])
+
+  coAdminId             String?
+  coAdmin               User?           @relation("CoAdminDelegate", fields: [coAdminId], references: [id])
 
   // Timestamps
   createdAt             DateTime        @default(now())
@@ -94,14 +126,19 @@ model RFP {
 // TASK & OWNERSHIP GOVERNANCE
 // ============================================
 
-// TaskStatus strings: NOT_STARTED, IN_PROGRESS, BLOCKED, COMPLETED
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  COMPLETED
+}
 
 model Task {
   id              String      @id @default(uuid())
   title           String
-  description     String?
+  description     String?     @db.Text
   dueDate         DateTime
-  status          String      @default("NOT_STARTED")
+  status          TaskStatus  @default(NOT_STARTED)
   isOverdue       Boolean     @default(false)
   isEscalated     Boolean     @default(false) // >48hrs overdue
   
@@ -127,11 +164,17 @@ model Task {
 // MILESTONE ENGINE
 // ============================================
 
-// MilestoneType strings: KICKOFF, DRAFT_1, INTERNAL_REVIEW, FINAL_REVIEW, SUBMISSION
+enum MilestoneType {
+  KICKOFF
+  DRAFT_1
+  INTERNAL_REVIEW
+  FINAL_REVIEW
+  SUBMISSION
+}
 
 model Milestone {
   id              String        @id @default(uuid())
-  type            String
+  type            MilestoneType
   title           String
   targetDate      DateTime
   completedDate   DateTime?
@@ -153,15 +196,23 @@ model Milestone {
 // APPROVAL WORKFLOW
 // ============================================
 
-// ApprovalType strings: DRAFT_APPROVAL, FINAL_APPROVAL, GO_NO_GO
+enum ApprovalType {
+  DRAFT_APPROVAL
+  FINAL_APPROVAL
+  GO_NO_GO
+}
 
-// ApprovalStatus strings: PENDING, APPROVED, REJECTED
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
 
 model Approval {
   id              String          @id @default(uuid())
-  type            String
-  status          String          @default("PENDING")
-  comments        String?
+  type            ApprovalType
+  status          ApprovalStatus  @default(PENDING)
+  comments        String?         @db.Text
   
   reviewerId      String
   reviewer        User            @relation(fields: [reviewerId], references: [id])
@@ -181,11 +232,22 @@ model Approval {
 // AUDIT COMPLIANCE - ACTIVITY LOGGING
 // ============================================
 
-// ActivityAction strings: RFP_CREATED, RFP_UPDATED, TASK_CREATED, TASK_ASSIGNED, TASK_UPDATED, STATUS_CHANGED, APPROVAL_REQUESTED, APPROVAL_DECIDED, RISK_ESCALATED, MILESTONE_COMPLETED
+enum ActivityAction {
+  RFP_CREATED
+  RFP_UPDATED
+  TASK_CREATED
+  TASK_ASSIGNED
+  TASK_UPDATED
+  STATUS_CHANGED
+  APPROVAL_REQUESTED
+  APPROVAL_DECIDED
+  RISK_ESCALATED
+  MILESTONE_COMPLETED
+}
 
 model ActivityLog {
   id              String          @id @default(uuid())
-  action          String
+  action          ActivityAction
   description     String
   entityType      String          // "RFP", "Task", "Approval"
   entityId        String
@@ -208,11 +270,17 @@ model ActivityLog {
 // NOTIFICATION SYSTEM
 // ============================================
 
-// NotificationType strings: TASK_ASSIGNED, DEADLINE_APPROACHING, RISK_ESCALATED, APPROVAL_REQUESTED, STATUS_CHANGED
+enum NotificationType {
+  TASK_ASSIGNED
+  DEADLINE_APPROACHING
+  RISK_ESCALATED
+  APPROVAL_REQUESTED
+  STATUS_CHANGED
+}
 
 model Notification {
   id              String            @id @default(uuid())
-  type            String
+  type            NotificationType
   title           String
   message         String
   isRead          Boolean           @default(false)

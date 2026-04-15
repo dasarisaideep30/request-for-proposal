@@ -3,8 +3,7 @@
  * Executive KPIs and analytics
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../prismaClient');
 
 /**
  * Get executive dashboard metrics
@@ -12,9 +11,16 @@ const prisma = new PrismaClient();
  */
 const getExecutiveDashboard = async (req, res) => {
   try {
+    const userId = req.user.id;
+    const isAdmin = req.user.role === 'ADMIN';
+
+    // Base filter for privacy (Strictly RFPs created by me unless Admin)
+    const privacyFilter = isAdmin ? {} : { proposalManagerId: userId };
+
     // Total Active RFPs (all statuses except WON/LOST)
     const activeRFPs = await prisma.rFP.count({
       where: {
+        ...privacyFilter,
         status: {
           notIn: ['WON', 'LOST', 'SUBMITTED']
         }
@@ -24,6 +30,7 @@ const getExecutiveDashboard = async (req, res) => {
     // RFPs at Risk (AMBER or RED)
     const rfpsAtRisk = await prisma.rFP.count({
       where: {
+        ...privacyFilter,
         riskLevel: {
           in: ['AMBER', 'RED']
         },
@@ -34,20 +41,26 @@ const getExecutiveDashboard = async (req, res) => {
     });
 
     // Total Pipeline Value
-    const pipelineValue = await prisma.rFP.aggregate({
-      where: {
-        status: {
-          notIn: ['LOST']
+    let pipelineValue = 0;
+    if (isAdmin) {
+      const pipelineAgg = await prisma.rFP.aggregate({
+        where: {
+          ...privacyFilter,
+          status: {
+            notIn: ['WON', 'LOST']
+          }
+        },
+        _sum: {
+          estimatedDealValue: true
         }
-      },
-      _sum: {
-        estimatedDealValue: true
-      }
-    });
+      });
+      pipelineValue = pipelineAgg._sum.estimatedDealValue || 0;
+    }
 
     // Average Proposal Turnaround Time (in days)
     const submittedRFPs = await prisma.rFP.findMany({
       where: {
+        ...privacyFilter,
         status: {
           in: ['SUBMITTED', 'WON', 'LOST']
         },
@@ -72,9 +85,10 @@ const getExecutiveDashboard = async (req, res) => {
       avgTurnaround = Math.round(totalDays / submittedRFPs.length);
     }
 
-    // Win Rate (%)
+    // Win Rate (%) - Proposals accepted (WON) vs total decided
     const totalDecided = await prisma.rFP.count({
       where: {
+        ...privacyFilter,
         status: {
           in: ['WON', 'LOST']
         }
@@ -83,6 +97,7 @@ const getExecutiveDashboard = async (req, res) => {
 
     const totalWon = await prisma.rFP.count({
       where: {
+        ...privacyFilter,
         status: 'WON'
       }
     });
@@ -95,7 +110,8 @@ const getExecutiveDashboard = async (req, res) => {
         status: 'COMPLETED',
         completedAt: {
           not: null
-        }
+        },
+        rfp: privacyFilter
       },
       select: {
         dueDate: true,
@@ -115,6 +131,7 @@ const getExecutiveDashboard = async (req, res) => {
     const riskDistribution = await prisma.rFP.groupBy({
       by: ['riskLevel'],
       where: {
+        ...privacyFilter,
         status: {
           notIn: ['WON', 'LOST']
         }
@@ -123,26 +140,44 @@ const getExecutiveDashboard = async (req, res) => {
     });
 
     // Industry Pipeline Value
-    const industryPipeline = await prisma.rFP.groupBy({
-      by: ['industry'],
-      where: {
-        status: {
-          notIn: ['LOST']
-        }
-      },
-      _sum: {
-        estimatedDealValue: true
-      },
-      _count: true
-    });
+    const industryPipeline = [];
+    if (isAdmin) {
+      const indPipe = await prisma.rFP.groupBy({
+        by: ['industry'],
+        where: {
+          status: {
+            notIn: ['WON', 'LOST']
+          }
+        },
+        _sum: {
+          estimatedDealValue: true
+        },
+        _count: true
+      });
+      industryPipeline.push(...indPipe.map(i => ({
+        industry: i.industry,
+        value: i._sum.estimatedDealValue || 0,
+        count: i._count
+      })));
+    }
 
     // Recent Activity
     const recentActivity = await prisma.activityLog.findMany({
       take: 20,
+      where: isAdmin ? {} : {
+        OR: [
+          { userId: userId },
+          { rfp: privacyFilter }
+        ]
+      },
       orderBy: { createdAt: 'desc' },
-      include: {
+      select: {
+        id: true,
+        action: true,
+        description: true,
+        createdAt: true,
         user: {
-          select: { firstName: true, lastName: true, email: true }
+          select: { firstName: true, lastName: true }
         },
         rfp: {
           select: { rfpNumber: true, clientName: true }
@@ -150,11 +185,42 @@ const getExecutiveDashboard = async (req, res) => {
       }
     });
 
+    // RFP Volume by Status (for the chart)
+    const statusCounts = await prisma.rFP.groupBy({
+      by: ['status'],
+      where: {
+        ...privacyFilter,
+        status: {
+          notIn: ['WON', 'LOST']
+        }
+      },
+      _count: true
+    });
+
+    // Rejected Proposals for Admin Review
+    const rejectedRFPs = isAdmin ? await prisma.rFP.findMany({
+      where: {
+        status: 'REJECTED'
+      },
+      select: {
+        id: true,
+        rfpNumber: true,
+        clientName: true,
+        projectTitle: true,
+        proposalManager: {
+          select: { firstName: true, lastName: true }
+        },
+        createdAt: true
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10
+    }) : [];
+
     res.status(200).json({
       kpis: {
         activeRFPs,
-        rfpsAtRisk,
-        totalPipelineValue: pipelineValue._sum.estimatedDealValue || 0,
+        rfpsAtRisk: isAdmin ? rfpsAtRisk : 0,
+        totalPipelineValue: pipelineValue,
         avgProposalTurnaround: avgTurnaround,
         winRate,
         slaCompliance
@@ -164,13 +230,14 @@ const getExecutiveDashboard = async (req, res) => {
           level: r.riskLevel,
           count: r._count
         })),
-        industryPipeline: industryPipeline.map(i => ({
-          industry: i.industry,
-          value: i._sum.estimatedDealValue,
-          count: i._count
-        }))
+        statusDistribution: statusCounts.map(s => ({
+          status: s.status,
+          count: s._count
+        })),
+        industryPipeline
       },
-      recentActivity
+      recentActivity,
+      rejectedRFPs
     });
 
   } catch (error) {

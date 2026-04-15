@@ -3,9 +3,9 @@
  * Manages RFP lifecycle, risk calculation, and governance
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../prismaClient');
 const { calculateRiskLevel, calculateCompletionPercentage, generateMilestones } = require('../utils/riskEngine');
+const { broadcastRFPEvent } = require('../utils/notification.utils');
 
 /**
  * Get all RFPs with filtering and search
@@ -15,45 +15,47 @@ const getAllRFPs = async (req, res) => {
   try {
     const { status, riskLevel, search } = req.query;
     const userId = req.user.id;
-    const userRole = req.user.role;
+    const isAdmin = req.user.role === 'ADMIN';
+    const isCoAdmin = req.user.role === 'CO_ADMIN';
+    const privacyConditions = (isAdmin || isCoAdmin) ? {} : { proposalManagerId: userId };
+    
+    // Build filter array for AND grouping
+    const filters = [privacyConditions];
 
-    // Build filter based on role
-    let where = {};
-
-    // Solution Architects only see assigned RFPs
-    if (userRole === 'SOLUTION_ARCHITECT') {
-      where.solutionArchitectId = userId;
-    }
-
-    // Apply filters
     if (status) {
-      where.status = status;
+      filters.push({ status });
     }
+    
     if (riskLevel) {
-      where.riskLevel = riskLevel;
+      filters.push({ riskLevel });
     }
+    
     if (search) {
-      where.OR = [
-        { clientName: { contains: search, mode: 'insensitive' } },
-        { rfpNumber: { contains: search, mode: 'insensitive' } },
-        { projectTitle: { contains: search, mode: 'insensitive' } }
-      ];
+      filters.push({
+        OR: [
+          { clientName: { contains: search, mode: 'insensitive' } },
+          { rfpNumber: { contains: search, mode: 'insensitive' } },
+          { projectTitle: { contains: search, mode: 'insensitive' } },
+          { industry: { contains: search, mode: 'insensitive' } },
+          { executiveSummary: { contains: search, mode: 'insensitive' } }
+        ]
+      });
     }
 
     const rfps = await prisma.rFP.findMany({
-      where,
-      include: {
+      where: {
+        AND: filters
+      },
+      select: {
+        id: true,
+        projectTitle: true,
+        clientName: true,
+        estimatedDealValue: true,
+        submissionDeadline: true,
+        status: true,
+        riskLevel: true,
         proposalManager: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        solutionArchitect: {
-          select: { id: true, firstName: true, lastName: true, email: true }
-        },
-        tasks: {
-          select: { id: true, status: true }
-        },
-        milestones: {
-          select: { id: true, isCompleted: true }
+          select: { firstName: true }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -130,6 +132,13 @@ const getRFPById = async (req, res) => {
       });
     }
 
+    if (req.user.role === 'PROPOSAL_MANAGER' && rfp.proposalManagerId !== req.user.id) {
+        return res.status(403).json({
+          error: 'Access denied',
+          message: 'You do not have access to this RFP'
+        });
+    }
+
     res.status(200).json({ rfp });
 
   } catch (error) {
@@ -156,9 +165,16 @@ const createRFP = async (req, res) => {
 
     // Validate required fields
     if (!clientName || !industry || !projectTitle || !submissionDeadline || !estimatedDealValue) {
+      const missingFields = [];
+      if (!clientName) missingFields.push('clientName');
+      if (!industry) missingFields.push('industry');
+      if (!projectTitle) missingFields.push('projectTitle');
+      if (!submissionDeadline) missingFields.push('submissionDeadline');
+      if (!estimatedDealValue) missingFields.push('estimatedDealValue');
+
       return res.status(400).json({
         error: 'Validation error',
-        message: 'Required fields: clientName, industry, projectTitle, submissionDeadline, estimatedDealValue'
+        message: `The following fields are required: ${missingFields.join(', ')}`
       });
     }
 
@@ -178,11 +194,22 @@ const createRFP = async (req, res) => {
         projectTitle,
         executiveSummary,
         submissionDeadline: new Date(submissionDeadline),
-        estimatedDealValue: parseFloat(estimatedDealValue),
+        estimatedDealValue,
         proposalManagerId: req.user.id,
         solutionArchitectId,
         milestones: {
           create: milestoneData
+        },
+        tasks: {
+          create: [
+            {
+              title: 'Review Initial Requirements',
+              description: `Review the initial requirements and RFP details for ${clientName}`,
+              status: 'NOT_STARTED',
+              dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 2 days
+              ownerId: req.user.id
+            }
+          ]
         }
       },
       include: {
@@ -196,6 +223,14 @@ const createRFP = async (req, res) => {
       }
     });
 
+    // Initial Risk calculation
+    const riskLevel = calculateRiskLevel(rfp);
+    await prisma.rFP.update({
+      where: { id: rfp.id },
+      data: { riskLevel }
+    });
+    rfp.riskLevel = riskLevel;
+
     // Log activity
     await prisma.activityLog.create({
       data: {
@@ -208,18 +243,13 @@ const createRFP = async (req, res) => {
       }
     });
 
-    // Create notification for assigned architect
-    if (solutionArchitectId) {
-      await prisma.notification.create({
-        data: {
-          type: 'TASK_ASSIGNED',
-          title: 'New RFP Assigned',
-          message: `You have been assigned as Solution Architect for ${clientName} - ${projectTitle}`,
-          userId: solutionArchitectId,
-          rfpId: rfp.id
-        }
-      });
-    }
+    // Create notification for assigned architect and broadcast to stakeholders
+    await broadcastRFPEvent({
+        rfpId: rfp.id,
+        type: 'STATUS_CHANGED',
+        title: 'New RFP Created',
+        message: `RFP ${rfpNumber} has been initiated for ${clientName}`
+    });
 
     res.status(201).json({
       message: 'RFP created successfully',
@@ -259,13 +289,28 @@ const updateRFP = async (req, res) => {
       });
     }
 
-    // Recalculate risk if necessary fields updated
-    if (updateData.status || updateData.solutionArchitectId !== undefined) {
-      const tasks = await prisma.task.findMany({ where: { rfpId: id } });
-      const milestones = await prisma.milestone.findMany({ where: { rfpId: id } });
-      updateData.riskLevel = calculateRiskLevel(currentRFP, tasks, milestones);
-      updateData.completionPercentage = calculateCompletionPercentage(tasks, milestones);
+    // REJECTION LOOP LOGIC: 
+    // If an RFP is updated by a non-Admin while in REJECTED state, force back to INTAKE
+    if (currentRFP.status === 'REJECTED' && req.user.role !== 'ADMIN') {
+        console.log(`[REJECTION-LOOP] RFP ${currentRFP.rfpNumber} updated from REJECTED state. Resetting status to INTAKE.`);
+        updateData.status = 'INTAKE';
     }
+
+    // Role-based status restrictions
+    if (updateData.status === 'APPROVED' && req.user.role !== 'ADMIN') {
+        delete updateData.status; // Prevent unauthorized approval
+    }
+
+    // Recalculate risk if necessary fields updated
+    const tasks = await prisma.task.findMany({ where: { rfpId: id } });
+    const milestones = await prisma.milestone.findMany({ where: { rfpId: id } });
+    
+    // Always sync risk level on update if deadline or value changed
+    if (updateData.submissionDeadline || updateData.estimatedDealValue || updateData.status) {
+      updateData.riskLevel = calculateRiskLevel({ ...currentRFP, ...updateData });
+    }
+    
+    updateData.completionPercentage = calculateCompletionPercentage(tasks, milestones);
 
     // Update RFP
     const rfp = await prisma.rFP.update({
@@ -290,6 +335,16 @@ const updateRFP = async (req, res) => {
         rfpId: rfp.id
       }
     });
+
+    // Broadcast update to stakeholders if status changed
+    if (updateData.status) {
+        await broadcastRFPEvent({
+            rfpId: rfp.id,
+            type: 'STATUS_CHANGED',
+            title: 'RFP Status Updated',
+            message: `RFP ${rfp.rfpNumber} status is now ${rfp.status}`
+        });
+    }
 
     res.status(200).json({
       message: 'RFP updated successfully',

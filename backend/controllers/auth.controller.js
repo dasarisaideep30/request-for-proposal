@@ -5,8 +5,7 @@
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../prismaClient');
 
 /**
  * Generate JWT token
@@ -47,6 +46,17 @@ const register = async (req, res) => {
       });
     }
 
+    // Validate role
+    const validRoles = ['PROPOSAL_MANAGER', 'SOLUTION_ARCHITECT', 'LEADERSHIP', 'BID_REVIEWER'];
+    const userRole = role || 'PROPOSAL_MANAGER';
+
+    if (!validRoles.includes(userRole)) {
+      return res.status(400).json({
+        error: 'Validation error',
+        message: `Invalid role. Must be one of: ${validRoles.join(', ')}`
+      });
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -57,7 +67,7 @@ const register = async (req, res) => {
         password: hashedPassword,
         firstName,
         lastName,
-        role: role || 'SOLUTION_ARCHITECT'
+        role: userRole
       },
       select: {
         id: true,
@@ -92,6 +102,7 @@ const register = async (req, res) => {
  * POST /api/auth/login
  */
 const login = async (req, res) => {
+  console.log(`[DEBUG] Login attempt for: ${req.body?.email}`);
   try {
     const { email, password } = req.body;
 
@@ -184,8 +195,54 @@ const getProfile = async (req, res) => {
   }
 };
 
+/**
+ * Update user profile
+ * PATCH /api/auth/profile
+ */
+const updateProfile = async (req, res) => {
+  try {
+    const { firstName, lastName } = req.body;
+    const userId = req.user.id;
+
+    if (!firstName && !lastName) {
+      return res.status(400).json({
+        error: 'Validation error',
+        message: 'At least one field (firstName or lastName) is required'
+      });
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(firstName && { firstName }),
+        ...(lastName && { lastName })
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        updatedAt: true
+      }
+    });
+
+    res.status(200).json({
+      message: 'Profile updated successfully',
+      user: updatedUser
+    });
+
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({
+      error: 'Failed to update profile'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
-  getProfile
+  getProfile,
+  updateProfile
 };

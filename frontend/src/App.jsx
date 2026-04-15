@@ -4,10 +4,205 @@
  */
 
 import { useState, useEffect, createContext, useContext } from 'react';
-import { BarChart3, FileText, CheckSquare, Bell, LogOut, Home, Plus, AlertTriangle, TrendingUp, DollarSign, Clock, Target, Trash2, Edit2 } from 'lucide-react';
+import {
+  BarChart3, FileText, CheckSquare, Bell, LogOut, Home, Plus,
+  AlertTriangle,
+  TrendingUp,
+  DollarSign,
+  Clock,
+  Target,
+  Settings,
+  Search,
+  Filter,
+  ChevronDown,
+  Zap,
+  FileUp,
+  Download
+} from 'lucide-react';
 
 // API Configuration
-const API_URL = import.meta.env.PROD ? 'https://rfps-2ha8.vercel.app/api' : (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
+const API_URL = import.meta.env.VITE_API_URL || '/api';
+
+// ============================================
+// AUTHENTICATION CONTEXT
+// ============================================
+
+// ============================================
+// MOCK DATA & API FALLBACK (For Database-less Deployment)
+// ============================================
+
+const MOCK_STORAGE_KEY = 'rfp_mock_data';
+
+const getMockData = () => {
+  const data = localStorage.getItem(MOCK_STORAGE_KEY);
+  return data ? JSON.parse(data) : {
+    rfps: [
+      {
+        id: '1',
+        rfpNumber: 'RFP-2024-001',
+        clientName: 'Global Finance Corp',
+        industry: 'Financial Services',
+        projectTitle: 'Cloud Transformation Strategy',
+        estimatedDealValue: 12500000,
+        status: 'IN_PROGRESS',
+        riskLevel: 'GREEN',
+        submissionDeadline: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString(),
+        completionPercentage: 65,
+        proposalManager: { firstName: 'Sarah', lastName: 'Johnson' },
+        tasks: [],
+        milestones: []
+      }
+    ],
+    user: { id: 'mock-user', firstName: 'Guest', lastName: 'User', email: 'guest@example.com', role: 'PROPOSAL_MANAGER' }
+  };
+};
+
+const saveMockData = (data) => localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(data));
+
+const apiCall = async (endpoint, options = {}, token, retryCount = 0) => {
+  // Check if we should use mock data (if VITE_API_URL is not set or backend is unreachable)
+  // Check if we should use mock data
+  const isMockMode = import.meta.env.VITE_USE_MOCK === 'true';
+
+  if (isMockMode) {
+    console.warn('🚀 Running in Demo Mode (Mock API)');
+    const mockData = getMockData();
+
+    // Helper to get request body
+    const body = options.body ? JSON.parse(options.body) : {};
+
+    // 1. AUTHENTICATION MOCK
+    if (endpoint === '/auth/me') return { user: mockData.user };
+    if (endpoint === '/auth/register') {
+      const newUser = { id: 'user-' + Date.now(), ...body, role: body.role || 'SOLUTION_ARCHITECT' };
+      mockData.user = newUser;
+      saveMockData(mockData);
+      return { message: 'User registered', user: newUser, token: 'mock-token-' + Date.now() };
+    }
+
+    // 2. RFP MANAGEMENT MOCK
+    if (endpoint === '/rfps') {
+      if (options.method === 'POST') {
+        const newRfp = {
+          id: 'rfp-' + Date.now(),
+          rfpNumber: 'RFP-' + (2024 + mockData.rfps.length).toString(),
+          completionPercentage: 0,
+          status: 'INTAKE',
+          riskLevel: 'GREEN',
+          proposalManager: mockData.user,
+          tasks: [],
+          milestones: [
+            { id: 'm1', title: 'Kickoff', targetDate: new Date().toISOString(), isCompleted: true },
+            { id: 'm2', title: 'Draft Submission', targetDate: new Date(Date.now() + 7 * 86400000).toISOString(), isCompleted: false }
+          ],
+          ...body
+        };
+        mockData.rfps.unshift(newRfp);
+        saveMockData(mockData);
+        return { message: 'RFP Created', rfp: newRfp };
+      }
+      return { rfps: mockData.rfps };
+    }
+
+    if (endpoint.startsWith('/rfps/')) {
+      const id = endpoint.split('/').pop();
+      const rfp = mockData.rfps.find(r => r.id === id);
+      return { rfp: rfp || mockData.rfps[0] };
+    }
+
+    // 3. TASKS MOCK
+    if (endpoint === '/tasks') {
+      // Return flat list of all tasks from all RFPs
+      const allTasks = mockData.rfps.flatMap(r => r.tasks.map(t => ({ ...t, rfp: { projectTitle: r.projectTitle } })));
+      return { tasks: allTasks };
+    }
+
+    if (endpoint.startsWith('/tasks/')) {
+      const id = endpoint.split('/').pop();
+      if (options.method === 'PATCH') {
+        mockData.rfps.forEach(r => {
+          r.tasks = r.tasks.map(t => t.id === id ? { ...t, ...body } : t);
+        });
+        saveMockData(mockData);
+        return { message: 'Task updated' };
+      }
+    }
+
+    // 4. DASHBOARD MOCK
+    if (endpoint === '/dashboard/executive') {
+      const activeCount = mockData.rfps.filter(r => r.status !== 'WON' && r.status !== 'LOST').length;
+      const totalValue = mockData.rfps.reduce((sum, r) => sum + (Number(r.estimatedDealValue) || 0), 0);
+      return {
+        kpis: {
+          totalPipelineValue: totalValue,
+          activeRFPs: activeCount,
+          rfpsAtRisk: mockData.rfps.filter(r => r.riskLevel === 'RED').length,
+          winRate: 68
+        },
+        charts: {
+          statusDistribution: [
+            { status: 'INTAKE', count: mockData.rfps.filter(r => r.status === 'INTAKE').length },
+            { status: 'PLANNING', count: mockData.rfps.filter(r => r.status === 'PLANNING').length },
+            { status: 'IN_PROGRESS', count: mockData.rfps.filter(r => r.status === 'IN_PROGRESS').length },
+            { status: 'REVIEW', count: mockData.rfps.filter(r => r.status === 'REVIEW').length }
+          ],
+          riskDistribution: [
+            { level: 'GREEN', count: mockData.rfps.filter(r => r.riskLevel === 'GREEN').length },
+            { level: 'AMBER', count: mockData.rfps.filter(r => r.riskLevel === 'AMBER').length },
+            { level: 'RED', count: mockData.rfps.filter(r => r.riskLevel === 'RED').length }
+          ]
+        },
+        recentActivity: [
+          { id: 'a1', action: 'RFP_CREATED', user: mockData.user, rfp: mockData.rfps[0], createdAt: new Date().toISOString() }
+        ]
+      };
+    }
+
+    if (endpoint === '/dashboard/my-rfps') return { unreadCount: 0 };
+
+    return {}; // Default fallback
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+    ...options.headers
+  };
+
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers
+    });
+
+    if (response.status === 429 && retryCount < 3) {
+      const waitTime = Math.pow(2, retryCount) * 1000;
+      console.warn(`Rate limited. Retrying in ${waitTime}ms...`);
+      await new Promise(res => setTimeout(res, waitTime));
+      return apiCall(endpoint, options, token, retryCount + 1);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = 'API request failed';
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.message || errorMessage;
+      } catch (e) {
+        errorMessage = errorText || errorMessage;
+      }
+      throw new Error(errorMessage);
+    }
+
+    return response.json();
+  } catch (error) {
+    if (retryCount < 3 && error.name !== 'TypeError') {
+      await new Promise(res => setTimeout(res, 1000));
+      return apiCall(endpoint, options, token, retryCount + 1);
+    }
+    throw error;
+  }
+};
 
 // ============================================
 // AUTHENTICATION CONTEXT
@@ -15,10 +210,19 @@ const API_URL = import.meta.env.PROD ? 'https://rfps-2ha8.vercel.app/api' : (imp
 
 const AuthContext = createContext(null);
 
+const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
+};
+
 const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    const cached = localStorage.getItem('rfp_user_cache');
+    return cached ? JSON.parse(cached) : null;
+  });
   const [token, setToken] = useState(localStorage.getItem('token'));
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!user && !!token);
 
   useEffect(() => {
     if (token) {
@@ -30,16 +234,9 @@ const AuthProvider = ({ children }) => {
 
   const fetchCurrentUser = async () => {
     try {
-      const response = await fetch(`${API_URL}/auth/me`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
-      } else {
-        logout();
-      }
+      const data = await apiCall('/auth/me', {}, token);
+      setUser(data.user);
+      localStorage.setItem('rfp_user_cache', JSON.stringify(data.user));
     } catch (error) {
       console.error('Failed to fetch user:', error);
       logout();
@@ -49,6 +246,17 @@ const AuthProvider = ({ children }) => {
   };
 
   const login = async (email, password) => {
+    const isMockMode = import.meta.env.VITE_USE_MOCK === 'true';
+
+    if (isMockMode) {
+      const mockData = getMockData();
+      const mockToken = 'mock-token-' + Date.now();
+      setToken(mockToken);
+      setUser(mockData.user);
+      localStorage.setItem('token', mockToken);
+      return { token: mockToken, user: mockData.user };
+    }
+
     const response = await fetch(`${API_URL}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -64,6 +272,7 @@ const AuthProvider = ({ children }) => {
     setToken(data.token);
     setUser(data.user);
     localStorage.setItem('token', data.token);
+    localStorage.setItem('rfp_user_cache', JSON.stringify(data.user));
     return data;
   };
 
@@ -71,107 +280,55 @@ const AuthProvider = ({ children }) => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('token');
+    localStorage.removeItem('rfp_user_cache');
+    localStorage.removeItem('rfp_dash_cache');
+  };
+
+  const updateUser = (userData) => {
+    const newUser = { ...user, ...userData };
+    setUser(newUser);
+    localStorage.setItem('rfp_user_cache', JSON.stringify(newUser));
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, token, loading, login, logout, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
-};
-
-const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
-};
-
-// ============================================
-// API SERVICE FUNCTIONS
-// ============================================
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-const fetchWithRetry = async (url, options, retries = 3) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const response = await fetch(url, options);
-      if (response.status === 429) {
-        // Rate limited, exponential backoff
-        await sleep(Math.pow(2, i) * 1000);
-        continue;
-      }
-      return response;
-    } catch (err) {
-      if (i === retries - 1) throw err;
-      await sleep(Math.pow(2, i) * 1000); // Exponential backoff
-    }
-  }
-};
-
-const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
-
-const mockDB = {
-  dashboard: { kpis: { activeRFPs: 12, rfpsAtRisk: 2, totalPipelineValue: 45000000, avgProposalTurnaround: 45, winRate: 68, slaCompliance: 92 }, charts: { riskDistribution: [{ level: 'GREEN', count: 8 }, { level: 'AMBER', count: 2 }, { level: 'RED', count: 2 }], industryPipeline: [{ industry: 'Tech', count: 5, value: 20000000 }] }, recentActivity: [] },
-  rfps: [{ id: '1', rfpNumber: 'RFP-2026-001', clientName: 'Globex Corp', industry: 'Technology', estimatedDealValue: 5000000, status: 'IN_PROGRESS', riskLevel: 'GREEN', completionPercentage: 45, proposalManager: { firstName: 'Sarah', lastName: 'Johnson' }, tasks: [], milestones: [] }],
-  tasks: [],
-  notifications: { notifications: [], unreadCount: 0 }
-};
-
-const handleMockApi = async (endpoint, options) => {
-  await sleep(400); // Simulate network latency
-  if (endpoint === '/auth/login') return { token: 'mock-token', user: { id: '1', firstName: 'Sarah', lastName: 'Johnson', role: 'PROPOSAL_MANAGER' } };
-  if (endpoint === '/auth/me') return { user: { id: '1', firstName: 'Sarah', lastName: 'Johnson', role: 'PROPOSAL_MANAGER' } };
-  if (endpoint === '/dashboard/executive') return mockDB.dashboard;
-  if (endpoint === '/dashboard/my-rfps') return { rfps: mockDB.rfps, tasks: [], notifications: [], unreadCount: 0 };
-  if (endpoint === '/rfps') return { rfps: mockDB.rfps };
-  if (endpoint.startsWith('/rfps/')) return { rfp: mockDB.rfps[0] };
-  if (endpoint === '/tasks') return { tasks: mockDB.tasks };
-  if (endpoint.startsWith('/activities')) return { activities: [] };
-  if (endpoint === '/notifications') return mockDB.notifications;
-  return {}; // default fallback
-};
-
-const apiCall = async (endpoint, options = {}, token) => {
-  if (USE_MOCK) return handleMockApi(endpoint, options);
-
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-    ...options.headers
-  };
-
-  const response = await fetchWithRetry(`${API_URL}${endpoint}`, {
-    ...options,
-    headers
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'API evaluation failed' }));
-    throw new Error(error.message || 'API request failed');
-  }
-
-  return response.json();
 };
 
 // ============================================
 // LOGIN COMPONENT
 // ============================================
 
-const LoginPage = () => {
+const Login = () => {
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [isLogin, setIsLogin] = useState(true);
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: ''
+  });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
+    setError('');
 
     try {
-      await login(email, password);
+      if (isLogin) {
+        await login(formData.email, formData.password);
+      } else {
+        await apiCall('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify(formData)
+        });
+        // After registration, auto-login
+        await login(formData.email, formData.password);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -179,223 +336,96 @@ const LoginPage = () => {
     }
   };
 
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <div className="login-header">
-          <h1 className="login-title">RFP Command Center</h1>
-          <p className="login-subtitle">Enterprise Proposal Management System</p>
+    <div className="login-page">
+      <div className="login-box">
+        <div style={{ marginBottom: '2rem' }}>
+          <div className="flex-center" style={{ marginBottom: '1.5rem' }}>
+            <div style={{ background: 'linear-gradient(135deg, #2563eb, #1e40af)', color: 'white', padding: '1rem', borderRadius: '15px', boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.3)' }}>
+              <FileText size={42} />
+            </div>
+          </div>
+          <h1 style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', letterSpacing: '-0.02em' }}>RFP Center</h1>
+          <p style={{ color: '#64748b', marginTop: '0.5rem', fontWeight: 600 }}>Command Center Enterprise</p>
+        </div>
+
+        <div className="login-tabs">
+          <button className={`login-tab ${isLogin ? 'active' : ''}`} onClick={() => setIsLogin(true)}>Sign In</button>
+          <button className={`login-tab ${!isLogin ? 'active' : ''}`} onClick={() => setIsLogin(false)}>Join Center</button>
         </div>
 
         <form onSubmit={handleSubmit}>
+          {!isLogin && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group">
+                <label className="form-label">First Name</label>
+                <input type="text" name="firstName" className="form-input" placeholder="First Name" value={formData.firstName} onChange={handleChange} required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Last Name</label>
+                <input type="text" name="lastName" className="form-input" placeholder="Last Name" value={formData.lastName} onChange={handleChange} required />
+              </div>
+            </div>
+          )}
+
           <div className="form-group">
-            <label className="form-label">Email Address</label>
-            <input
-              type="email"
-              className="form-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your.email@example.com"
-              required
-            />
+            <label className="form-label">Work Email</label>
+            <input type="email" name="email" className="form-input" placeholder="name@company.com" value={formData.email} onChange={handleChange} required />
           </div>
 
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input
-              type="password"
-              className="form-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              required
-            />
+            <input type="password" name="password" className="form-input" placeholder="••••••••" value={formData.password} onChange={handleChange} required />
           </div>
 
-          {error && (
-            <div style={{
-              padding: '0.75rem',
-              background: '#fee2e2',
-              color: '#991b1b',
-              borderRadius: '0.5rem',
-              marginBottom: '1rem',
-              fontSize: '0.9rem'
-            }}>
-              {error}
-            </div>
-          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1.5rem' }}>
+            <button
+              type="button"
+              onClick={() => { setIsLogin(!isLogin); setError(''); }}
+              style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer' }}
+            >
+              {isLogin ? 'Need an account? Register' : 'Already registered? Sign In'}
+            </button>
+          </div>
 
-          <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
-            {loading ? 'Signing In...' : 'Sign In'}
+          <button type="submit" className="btn btn-primary" disabled={loading} style={{ width: '100%', padding: '1rem', fontSize: '1rem' }}>
+            {loading ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <div className="spinner" style={{ width: '16px', height: '16px', margin: 0, borderWidth: '2px', borderTopColor: 'white' }}></div>
+                Processing...
+              </div>
+            ) : (isLogin ? 'Sign Into Center' : 'Create Enterprise Account')}
           </button>
         </form>
 
-        <div style={{ marginTop: '1.5rem', padding: '1rem', background: '#f1f5f9', borderRadius: '0.5rem' }}>
-          <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 600 }}>Demo Credentials:</p>
-          <p style={{ fontSize: '0.8rem', color: '#475569' }}>📧 sarah.johnson@example.com</p>
-          <p style={{ fontSize: '0.8rem', color: '#475569' }}>🔑 password123</p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================
-// DASHBOARD COMPONENT
-// ============================================
-
-const Dashboard = () => {
-  const { token } = useAuth();
-  const [dashboardData, setDashboardData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchDashboard();
-  }, []);
-
-  const fetchDashboard = async () => {
-    try {
-      const data = await apiCall('/dashboard/executive', {}, token);
-      setDashboardData(data);
-    } catch (error) {
-      console.error('Failed to fetch dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return <div className="loading"><div className="spinner"></div></div>;
-  }
-
-  if (!dashboardData) {
-    return <div className="empty-state">Failed to load dashboard data</div>;
-  }
-
-  const { kpis, charts } = dashboardData;
-
-  return (
-    <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '0.5rem' }}>Executive Dashboard</h1>
-        <p style={{ color: '#64748b' }}>Real-time RFP portfolio metrics and insights</p>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-label">Active RFPs</div>
-          <div className="kpi-value">{kpis.activeRFPs}</div>
-          <div className="kpi-trend">
-            <FileText size={16} style={{ display: 'inline', marginRight: '0.25rem' }} />
-            In Pipeline
+        {error && (
+          <div style={{
+            marginTop: '1.5rem',
+            padding: '1rem',
+            background: '#fff1f2',
+            color: '#e11d48',
+            borderRadius: '0.75rem',
+            fontSize: '0.9rem',
+            fontWeight: 700,
+            border: '1px solid #fda4af',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            animation: 'fadeIn 0.3s ease-out'
+          }}>
+            <AlertTriangle size={18} />
+            {error}
           </div>
-        </div>
+        )}
 
-        <div className="kpi-card">
-          <div className="kpi-label">RFPs at Risk</div>
-          <div className="kpi-value" style={{ color: kpis.rfpsAtRisk > 0 ? '#ef4444' : '#10b981' }}>
-            {kpis.rfpsAtRisk}
-          </div>
-          <div className="kpi-trend" style={{ color: kpis.rfpsAtRisk > 0 ? '#ef4444' : '#10b981' }}>
-            <AlertTriangle size={16} style={{ display: 'inline', marginRight: '0.25rem' }} />
-            {kpis.rfpsAtRisk > 0 ? 'Requires Attention' : 'All on Track'}
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-label">Pipeline Value</div>
-          <div className="kpi-value">${(kpis.totalPipelineValue / 1000000).toFixed(1)}M</div>
-          <div className="kpi-trend">
-            <DollarSign size={16} style={{ display: 'inline', marginRight: '0.25rem' }} />
-            Total Potential Revenue
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-label">Avg Turnaround</div>
-          <div className="kpi-value">{kpis.avgProposalTurnaround}</div>
-          <div style={{ fontSize: '0.875rem', color: '#64748b' }}>
-            <Clock size={16} style={{ display: 'inline', marginRight: '0.25rem' }} />
-            Days to Submission
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-label">Win Rate</div>
-          <div className="kpi-value">{kpis.winRate}%</div>
-          <div className="kpi-trend">
-            <TrendingUp size={16} style={{ display: 'inline', marginRight: '0.25rem' }} />
-            Success Rate
-          </div>
-        </div>
-
-        <div className="kpi-card">
-          <div className="kpi-label">SLA Compliance</div>
-          <div className="kpi-value" style={{ color: kpis.slaCompliance >= 90 ? '#10b981' : '#f59e0b' }}>
-            {kpis.slaCompliance}%
-          </div>
-          <div className="kpi-trend">
-            <Target size={16} style={{ display: 'inline', marginRight: '0.25rem' }} />
-            On-Time Delivery
-          </div>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '2rem' }}>
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Industry Pipeline</h3>
-          </div>
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Industry</th>
-                  <th>Count</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {charts.industryPipeline.map((item, index) => (
-                  <tr key={index}>
-                    <td>{item.industry}</td>
-                    <td>{item.count}</td>
-                    <td>${(item.value / 1000000).toFixed(2)}M</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Risk Distribution</h3>
-          </div>
-          <div style={{ padding: '1rem' }}>
-            {charts.riskDistribution.map((item, index) => (
-              <div key={index} style={{ marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                  <span className={`risk-badge risk-${item.level.toLowerCase()}`}>{item.level}</span>
-                  <span style={{ fontWeight: 600 }}>{item.count} RFPs</span>
-                </div>
-                <div style={{
-                  height: '8px',
-                  background: '#e2e8f0',
-                  borderRadius: '4px',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${(item.count / charts.riskDistribution.reduce((sum, r) => sum + r.count, 0)) * 100}%`,
-                    background: item.level === 'GREEN' ? '#10b981' : item.level === 'AMBER' ? '#f59e0b' : '#ef4444'
-                  }}></div>
-                </div>
-              </div>
-            ))}
-          </div>
+        <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '1px solid #f1f5f9' }}>
+          <p style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>
+            Enterprise Security Policy Active
+          </p>
         </div>
       </div>
     </div>
@@ -406,18 +436,27 @@ const Dashboard = () => {
 // RFP LIST COMPONENT
 // ============================================
 
-const RFPList = ({ onViewRFP, onCreateRFP }) => {
+const RFPList = ({ initialRfps, loading: propLoading, onViewRFP, onCreateRFP, onRefresh }) => {
   const { token, user } = useAuth();
-  const [rfps, setRfps] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [rfps, setRfps] = useState(initialRfps || []);
+  const [loading, setLoading] = useState(!initialRfps);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState('ALL'); // ALL, RISK:*, STATUS:*, DATE:*
+  const [showFilters, setShowFilters] = useState(false);
 
   useEffect(() => {
-    fetchRFPs();
-  }, []);
+    if (initialRfps && !search) {
+      setRfps(initialRfps);
+      setLoading(propLoading);
+    } else {
+      fetchRFPs();
+    }
+  }, [initialRfps, propLoading, search]);
 
   const fetchRFPs = async () => {
     try {
-      const data = await apiCall('/rfps', {}, token);
+      const endpoint = search ? `/rfps?search=${encodeURIComponent(search)}` : '/rfps';
+      const data = await apiCall(endpoint, {}, token);
       setRfps(data.rfps);
     } catch (error) {
       console.error('Failed to fetch RFPs:', error);
@@ -426,90 +465,289 @@ const RFPList = ({ onViewRFP, onCreateRFP }) => {
     }
   };
 
-  if (loading) {
-    return <div className="loading"><div className="spinner"></div></div>;
-  }
-
-  const canCreate = user?.role === 'PROPOSAL_MANAGER';
+  const canCreate = user?.role === 'PROPOSAL_MANAGER' || user?.role === 'SOLUTION_ARCHITECT' || user?.role === 'ADMIN' || user?.role === 'CO_ADMIN';
 
   return (
     <div>
-      <div className="flex-between" style={{ marginBottom: '2rem' }}>
+      <div className="flex-between" style={{ marginBottom: '2.5rem', alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '0.5rem' }}>RFP Portfolio</h1>
-          <p style={{ color: '#64748b' }}>Manage active proposals and opportunities</p>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>RFPs</h1>
+          <p style={{ color: '#64748b', fontSize: '1.1rem' }}>Manage your proposal pipeline</p>
         </div>
         {canCreate && (
-          <button className="btn btn-primary" onClick={onCreateRFP}>
-            <Plus size={18} />
-            New RFP
+          <button className="btn btn-primary" onClick={onCreateRFP} style={{ gap: '0.5rem' }}>
+            <Plus size={20} />
+            New Proposal
           </button>
         )}
       </div>
 
-      <div className="card">
+      <div className="card" style={{ marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input
+              type="text"
+              placeholder="Search RFPs..."
+              className="form-input"
+              style={{ paddingLeft: '40px' }}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button 
+              className="btn btn-secondary" 
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowFilters(!showFilters);
+              }}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                padding: '0.75rem 1.5rem', 
+                border: '1px solid #e2e8f0', 
+                background: 'white', 
+                fontWeight: 800,
+                borderRadius: '10px',
+                boxShadow: showFilters ? '0 0 0 2px #dbeafe' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <Filter size={18} />
+              Filter Options
+            </button>
+
+            {showFilters && (
+              <div style={{
+                position: 'absolute',
+                top: 'calc(100% + 12px)',
+                right: 0,
+                background: 'white',
+                borderRadius: '16px',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+                padding: '1.75rem',
+                minWidth: '350px',
+                zIndex: 1000,
+                border: '1px solid #f1f5f9',
+                animation: 'slideUp 0.3s ease-out'
+              }} onClick={e => e.stopPropagation()}>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+                  {/* Column 1 */}
+                  <div>
+                    <div style={{ marginBottom: '1.75rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '1rem', letterSpacing: '0.1em' }}>Risk Profile</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                        {['ALL', 'GREEN', 'AMBER', 'RED'].map(lvl => (
+                          <button 
+                            key={lvl}
+                            onClick={() => setFilterType(lvl === 'ALL' ? 'ALL' : `RISK:${lvl}`)}
+                            style={{
+                              textAlign: 'left',
+                              padding: '0.65rem 1rem',
+                              borderRadius: '8px',
+                              fontSize: '0.85rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              border: '1px solid',
+                              borderColor: (filterType === lvl || filterType === `RISK:${lvl}`) ? '#2563eb' : 'transparent',
+                              background: (filterType === lvl || filterType === `RISK:${lvl}`) ? '#eff6ff' : 'transparent',
+                              color: (filterType === lvl || filterType === `RISK:${lvl}`) ? '#2563eb' : '#64748b',
+                              transition: 'all 0.2s'
+                            }}
+                          >
+                            <span style={{ 
+                              display: 'inline-block', 
+                              width: '10px', 
+                              height: '10px', 
+                              borderRadius: '50%', 
+                              marginRight: '10px',
+                              background: lvl === 'GREEN' ? '#10b981' : lvl === 'AMBER' ? '#f59e0b' : lvl === 'RED' ? '#ef4444' : '#cbd5e1'
+                            }}></span>
+                            {lvl === 'ALL' ? 'All Risks' : lvl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '1rem', letterSpacing: '0.1em' }}>Timeframe</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {['ALL', 'UPCOMING', 'PAST'].map(time => (
+                          <button 
+                            key={time}
+                            onClick={() => setFilterType(`DATE:${time}`)}
+                            style={{
+                              textAlign: 'left',
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: '6px',
+                              fontSize: '0.85rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              border: 'none',
+                              background: filterType === `DATE:${time}` ? '#f1f5f9' : 'transparent',
+                              color: filterType === `DATE:${time}` ? '#0f172a' : '#64748b'
+                            }}
+                          >
+                            {time === 'ALL' ? 'Any Time' : time.charAt(0) + time.slice(1).toLowerCase()}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Column 2 */}
+                  <div>
+                    <div style={{ marginBottom: '1.75rem' }}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '1rem', letterSpacing: '0.1em' }}>Stage / Status</label>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        {['INTAKE', 'PLANNING', 'IN_PROGRESS', 'REVIEW', 'SUBMITTED', 'APPROVED', 'REJECTED'].map(st => (
+                          <button 
+                            key={st}
+                            onClick={() => setFilterType(`STATUS:${st}`)}
+                            style={{
+                              textAlign: 'left',
+                              padding: '0.5rem 0.75rem',
+                              borderRadius: '6px',
+                              fontSize: '0.85rem',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              border: 'none',
+                              background: filterType === `STATUS:${st}` ? '#f1f5f9' : 'transparent',
+                              color: filterType === `STATUS:${st}` ? '#0f172a' : '#64748b'
+                            }}
+                          >
+                            {st.replace('_', ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 900, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '1rem', letterSpacing: '0.1em' }}>Verticals</label>
+                      <select 
+                        onChange={(e) => setFilterType(`INDUSTRY:${e.target.value}`)}
+                        className="form-select"
+                        style={{ padding: '0.5rem', fontSize: '0.85rem', fontWeight: 700 }}
+                      >
+                        <option value="">All Industries</option>
+                        <option value="Financial Services">Financial Services</option>
+                        <option value="Technology">Technology</option>
+                        <option value="Healthcare">Healthcare</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '1.5rem', paddingTop: '1.25rem', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button 
+                    onClick={() => { setFilterType('ALL'); setShowFilters(false); }}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', fontWeight: 800, fontSize: '0.85rem', cursor: 'pointer' }}
+                  >
+                    Clear All
+                  </button>
+                  <button 
+                    onClick={() => setShowFilters(false)}
+                    className="btn btn-primary"
+                    style={{ padding: '0.6rem 1.25rem', fontSize: '0.85rem' }}
+                  >
+                    Apply Filters
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div className="table-container">
-          <table>
+          <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
               <tr>
-                <th>RFP Number</th>
-                <th>Client</th>
-                <th>Industry</th>
-                <th>Deadline</th>
-                <th>Value</th>
-                <th>Status</th>
-                <th>Risk</th>
-                <th>Completion</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>RFP Title</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Client</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Value</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Deadline</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Status</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Risk</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Owner</th>
               </tr>
             </thead>
             <tbody>
-              {rfps.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>
-                    No RFPs found
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '4rem' }}>
+                    <div className="spinner" style={{ margin: '0 auto' }}></div>
+                  </td>
+                </tr>
+              ) : rfps.length === 0 ? (
+                <tr>
+                  <td colSpan="7" style={{ textAlign: 'center', padding: '5rem 2rem', color: '#64748b' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>No RFPs found</div>
+                    <p>Create your first proposal to get started.</p>
                   </td>
                 </tr>
               ) : (
-                rfps.map((rfp) => (
-                  <tr key={rfp.id} onClick={() => onViewRFP(rfp.id)} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{rfp.rfpNumber}</td>
-                    <td>{rfp.clientName}</td>
-                    <td>{rfp.industry}</td>
-                    <td>{new Date(rfp.submissionDeadline).toLocaleDateString()}</td>
-                    <td>${(rfp.estimatedDealValue / 1000000).toFixed(2)}M</td>
-                    <td>
-                      <span className={`status-badge status-${rfp.status.toLowerCase()}`}>
-                        {rfp.status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`risk-badge risk-${rfp.riskLevel.toLowerCase()}`}>
-                        {rfp.riskLevel}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <div style={{
-                          flex: 1,
-                          height: '8px',
-                          background: '#e2e8f0',
-                          borderRadius: '4px',
-                          overflow: 'hidden'
-                        }}>
-                          <div style={{
-                            height: '100%',
-                            width: `${rfp.completionPercentage}%`,
-                            background: '#10b981',
-                            transition: 'width 0.3s'
-                          }}></div>
-                        </div>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 600, minWidth: '40px' }}>
-                          {rfp.completionPercentage}%
+                (() => {
+                  const filteredList = rfps.filter(rfp => {
+                    if (filterType === 'ALL') return true;
+                    if (filterType.startsWith('RISK:')) return rfp.riskLevel === filterType.split(':')[1];
+                    if (filterType.startsWith('STATUS:')) return rfp.status === filterType.split(':')[1];
+                    if (filterType.startsWith('DATE:')) {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0); // Normalize to start of today
+                      const deadline = new Date(rfp.submissionDeadline);
+                      if (filterType === 'DATE:PAST') return deadline < today;
+                      if (filterType === 'DATE:UPCOMING') {
+                        const thirtyDays = new Date(today);
+                        thirtyDays.setDate(thirtyDays.getDate() + 30);
+                        return deadline >= today && deadline <= thirtyDays;
+                      }
+                    }
+                    return true;
+                  });
+
+                  if (filteredList.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan="7" style={{ textAlign: 'center', padding: '5rem 2rem', color: '#64748b' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>No RFPs match criteria</div>
+                          <p>Try adjusting your search or filter settings.</p>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return filteredList.map((rfp) => (
+                    <tr key={rfp.id} onClick={() => onViewRFP(rfp.id)} style={{ cursor: 'pointer' }} className="table-row-hover">
+                      <td style={{ fontWeight: 700, color: '#0f172a' }}>{rfp.projectTitle}</td>
+                      <td style={{ color: '#475569' }}>{rfp.clientName}</td>
+                      <td style={{ fontWeight: 700, color: '#10b981' }}>${(rfp.estimatedDealValue / 1000000).toFixed(1)}M</td>
+                      <td style={{ color: '#475569' }}>{new Date(rfp.submissionDeadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                      <td>
+                        <span className={`status-badge status-${rfp.status.toLowerCase()}`}>
+                          {rfp.status.replace('_', ' ')}
                         </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td>
+                        <span className={`risk-badge risk-${rfp.riskLevel.toLowerCase()}`}>
+                          {rfp.riskLevel}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ width: '28px', height: '28px', background: '#eff6ff', color: '#2563eb', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, border: '1px solid #dbeafe' }}>
+                            {rfp.proposalManager?.firstName?.[0] || 'U'}
+                          </div>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{rfp.proposalManager?.firstName || 'Unknown'}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ));
+                })()
               )}
             </tbody>
           </table>
@@ -527,43 +765,18 @@ const RFPDetail = ({ rfpId, onBack }) => {
   const { token, user } = useAuth();
   const [rfp, setRfp] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isCreatingTask, setIsCreatingTask] = useState(false);
-  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: '', ownerId: '' });
+  const [coAdmins, setCoAdmins] = useState([]);
 
   useEffect(() => {
     fetchRFPDetail();
+    if (user?.role === 'ADMIN') fetchCoAdmins();
   }, [rfpId]);
 
-  const handleCreateTask = async (e) => {
-    e.preventDefault();
+  const fetchCoAdmins = async () => {
     try {
-      await apiCall('/tasks', {
-        method: 'POST',
-        body: JSON.stringify({ ...newTask, rfpId })
-      }, token);
-      setIsCreatingTask(false);
-      setNewTask({ title: '', description: '', dueDate: '', ownerId: '' });
-      fetchRFPDetail();
-    } catch (err) { alert(err.message); }
-  };
-
-  const handleUpdateTaskStatus = async (taskId, currentStatus) => {
-    const newStatus = currentStatus === 'COMPLETED' ? 'NOT_STARTED' : 'COMPLETED';
-    try {
-      await apiCall(`/tasks/${taskId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: newStatus })
-      }, token);
-      fetchRFPDetail();
-    } catch (err) { alert(err.message); }
-  };
-
-  const handleDeleteTask = async (taskId) => {
-    if (!window.confirm('Delete this task?')) return;
-    try {
-      await apiCall(`/tasks/${taskId}`, { method: 'DELETE' }, token);
-      fetchRFPDetail();
-    } catch (err) { alert(err.message); }
+      const data = await apiCall('/admin/users', {}, token);
+      setCoAdmins(data.users.filter(u => u.role === 'CO_ADMIN'));
+    } catch (e) {}
   };
 
   const fetchRFPDetail = async () => {
@@ -577,8 +790,61 @@ const RFPDetail = ({ rfpId, onBack }) => {
     }
   };
 
+  const handleUpdateStatus = async (newStatus) => {
+    if (!rfp) return;
+    
+    const oldStatus = rfp.status;
+    const oldActivity = [...(rfp.activityLogs || [])];
+    
+    // Optimistic Update
+    setRfp(prev => ({ 
+      ...prev, 
+      status: newStatus,
+      activityLogs: [
+        { 
+          id: 'temp-' + Date.now(), 
+          action: 'RFP_UPDATED', 
+          description: `Status updated to ${newStatus} (Syncing...)`, 
+          createdAt: new Date().toISOString(),
+          user: { firstName: 'You' }
+        },
+        ...oldActivity
+      ]
+    }));
+
+    try {
+      await apiCall(`/rfps/${rfpId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus })
+      }, token);
+      
+      // Background refresh to get server-calculated fields (risk, description, etc)
+      const data = await apiCall(`/rfps/${rfpId}`, {}, token);
+      setRfp(data.rfp);
+    } catch (error) {
+      console.error('Failed to update status:', error);
+      // Rollback
+      setRfp(prev => ({ ...prev, status: oldStatus, activityLogs: oldActivity }));
+      alert('Failed to update RFP status. Please check your connection.');
+    }
+  };
+
   if (loading) {
-    return <div className="loading"><div className="spinner"></div></div>;
+    return (
+      <div style={{ animation: 'fadeIn 0.3s' }}>
+        <div className="skeleton skeleton-title" style={{ width: '40%', height: '40px' }}></div>
+        <div className="dashboard-sections">
+          <div>
+            <div className="skeleton" style={{ height: '400px', width: '100%', marginBottom: '2rem' }}></div>
+            <div className="skeleton" style={{ height: '300px', width: '100%' }}></div>
+          </div>
+          <div>
+            <div className="skeleton" style={{ height: '200px', width: '100%', marginBottom: '2.5rem' }}></div>
+            <div className="skeleton" style={{ height: '400px', width: '100%' }}></div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (!rfp) {
@@ -587,156 +853,176 @@ const RFPDetail = ({ rfpId, onBack }) => {
 
   return (
     <div>
-      <button className="btn btn-secondary" onClick={onBack} style={{ marginBottom: '1.5rem' }}>
+      <button className="btn btn-secondary" onClick={onBack} style={{ marginBottom: '2rem', gap: '8px' }}>
         ← Back to List
       </button>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>
+      <div className="dashboard-sections">
         <div>
           {/* RFP Overview */}
           <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1.5rem' }}>
+            <div className="flex-between" style={{ alignItems: 'start', marginBottom: '2rem' }}>
               <div>
-                <h2 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>
                   {rfp.projectTitle}
                 </h2>
-                <p style={{ fontSize: '1.1rem', color: '#64748b' }}>{rfp.clientName}</p>
+                <p style={{ fontSize: '1.25rem', color: '#64748b', fontWeight: 500 }}>{rfp.clientName}</p>
               </div>
               <span className={`risk-badge risk-${rfp.riskLevel.toLowerCase()}`} style={{ fontSize: '0.9rem', padding: '0.5rem 1rem' }}>
                 {rfp.riskLevel} RISK
               </span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '2rem', padding: '1.5rem', background: '#f8fafc', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}>
               <div>
-                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.25rem' }}>RFP Number</div>
-                <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>{rfp.rfpNumber}</div>
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.4rem', fontWeight: 700, textTransform: 'uppercase' }}>RFP Number</div>
+                <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '1.1rem', color: '#0f172a' }}>{rfp.rfpNumber}</div>
               </div>
               <div>
-                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.25rem' }}>Industry</div>
-                <div style={{ fontWeight: 600 }}>{rfp.industry}</div>
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.4rem', fontWeight: 700, textTransform: 'uppercase' }}>Industry</div>
+                <div style={{ fontWeight: 700, fontSize: '1.1rem', color: '#0f172a' }}>{rfp.industry}</div>
               </div>
               <div>
-                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.25rem' }}>Deal Value</div>
-                <div style={{ fontWeight: 600, color: '#10b981' }}>${(rfp.estimatedDealValue / 1000000).toFixed(2)}M</div>
+                <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.4rem', fontWeight: 700, textTransform: 'uppercase' }}>Deal Value</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ fontWeight: 800, color: '#10b981' }}>$</span>
+                  <input 
+                    type="number" 
+                    value={rfp.estimatedDealValue} 
+                    onChange={(e) => setRfp(prev => ({ ...prev, estimatedDealValue: e.target.value }))}
+                    onBlur={() => apiCall(`/rfps/${rfpId}`, { method: 'PATCH', body: JSON.stringify({ estimatedDealValue: Number(rfp.estimatedDealValue) }) }, token)}
+                    style={{ border: 'none', borderBottom: '1px solid #d1d5db', background: 'transparent', fontWeight: 800, fontSize: '1.1rem', color: '#10b981', width: '100%' }}
+                  />
+                </div>
               </div>
             </div>
 
             {rfp.executiveSummary && (
-              <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1.5rem' }}>
-                <h4 style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Executive Summary</h4>
-                <p style={{ color: '#475569', lineHeight: 1.6 }}>{rfp.executiveSummary}</p>
+              <div style={{ padding: '1.5rem', background: '#f8fafc', borderRadius: '0.75rem', marginBottom: '2rem', border: '1px solid #e2e8f0' }}>
+                <h4 style={{ fontWeight: 800, marginBottom: '0.75rem', color: '#0f172a' }}>Executive Summary</h4>
+                <textarea 
+                  value={rfp.executiveSummary} 
+                  onChange={(e) => setRfp(prev => ({ ...prev, executiveSummary: e.target.value }))}
+                  onBlur={() => apiCall(`/rfps/${rfpId}`, { method: 'PATCH', body: JSON.stringify({ executiveSummary: rfp.executiveSummary }) }, token)}
+                  style={{ width: '100%', border: 'none', background: 'transparent', color: '#475569', lineHeight: 1.7, fontSize: '1.05rem', minHeight: '120px', resize: 'vertical', fontFamily: 'inherit' }}
+                />
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
               <div>
-                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.25rem' }}>Proposal Manager</div>
-                <div style={{ fontWeight: 600 }}>
-                  {rfp.proposalManager.firstName} {rfp.proposalManager.lastName}
+                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 600 }}>Proposal Manager</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '32px', height: '32px', background: '#2563eb', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                    {rfp.proposalManager.firstName?.[0]}
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>
+                    {rfp.proposalManager.firstName} {rfp.proposalManager.lastName}
+                  </div>
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.25rem' }}>Solution Architect</div>
-                <div style={{ fontWeight: 600 }}>
-                  {rfp.solutionArchitect ?
-                    `${rfp.solutionArchitect.firstName} ${rfp.solutionArchitect.lastName}` :
-                    'Not Assigned'}
+                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 600 }}>Solution Architect</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {rfp.solutionArchitect ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '32px', height: '32px', background: '#8b5cf6', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                        {rfp.solutionArchitect.firstName?.[0]}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>
+                        {rfp.solutionArchitect.firstName} {rfp.solutionArchitect.lastName}
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Not Assigned</span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', fontWeight: 600 }}>Co-Admin Oversight</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {user?.role === 'ADMIN' && rfp.status === 'APPROVED' ? (
+                    <select 
+                      className="form-select"
+                      style={{ fontSize: '0.85rem' }}
+                      value={rfp.coAdminId || ''}
+                      onChange={async (e) => {
+                        const coAdminId = e.target.value;
+                        await apiCall(`/rfps/${rfpId}`, { method: 'PATCH', body: JSON.stringify({ coAdminId }) }, token);
+                        fetchRFPDetail();
+                      }}
+                    >
+                      <option value="">Assign Co-Admin...</option>
+                      {coAdmins.map(ca => (
+                        <option key={ca.id} value={ca.id}>{ca.firstName} {ca.lastName}</option>
+                      ))}
+                    </select>
+                  ) : rfp.coAdmin ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '32px', height: '32px', background: '#3b82f6', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                        {rfp.coAdmin.firstName?.[0]}
+                      </div>
+                      <div style={{ fontWeight: 700, fontSize: '1.1rem' }}>
+                        {rfp.coAdmin.firstName} {rfp.coAdmin.lastName}
+                      </div>
+                    </div>
+                  ) : (
+                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No Delegate Assigned</span>
+                  )}
                 </div>
               </div>
             </div>
+
           </div>
 
           {/* Tasks */}
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 className="card-title">Tasks</h3>
-              {user?.role === 'PROPOSAL_MANAGER' && (
-                <button className="btn btn-primary" onClick={() => setIsCreatingTask(!isCreatingTask)} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
-                  <Plus size={16} /> New Task
-                </button>
-              )}
+          <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '1.5rem' }}>
+            <div style={{ padding: '1.75rem', borderBottom: '1px solid #f1f5f9' }}>
+              <h3 style={{ fontWeight: 800 }}>Tasks</h3>
             </div>
-
-            {isCreatingTask && (
-              <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: '0.5rem', marginBottom: '1rem', border: '1px solid #e2e8f0' }}>
-                <form onSubmit={handleCreateTask}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                    <div>
-                      <label className="form-label" style={{ fontSize: '0.8rem' }}>Title</label>
-                      <input type="text" className="form-input" style={{ padding: '0.5rem' }} value={newTask.title} onChange={e => setNewTask({ ...newTask, title: e.target.value })} required />
-                    </div>
-                    <div>
-                      <label className="form-label" style={{ fontSize: '0.8rem' }}>Due Date</label>
-                      <input type="date" className="form-input" style={{ padding: '0.5rem' }} value={newTask.dueDate} onChange={e => setNewTask({ ...newTask, dueDate: e.target.value })} required />
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: '1rem' }}>
-                    <label className="form-label" style={{ fontSize: '0.8rem' }}>Assignee ID (User ID)</label>
-                    <input type="text" className="form-input" style={{ padding: '0.5rem' }} placeholder="Enter User UUID" value={newTask.ownerId} onChange={e => setNewTask({ ...newTask, ownerId: e.target.value })} required />
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button type="submit" className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>Save</button>
-                    <button type="button" className="btn btn-secondary" onClick={() => setIsCreatingTask(false)} style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}>Cancel</button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {rfp.tasks.length === 0 && !isCreatingTask ? (
-              <div className="empty-state">No tasks yet</div>
-            ) : rfp.tasks.length > 0 && (
+            {rfp.tasks.length === 0 ? (
+              <div style={{ padding: '4rem', textAlign: 'center', color: '#64748b' }}>No tasks yet</div>
+            ) : (
               <div className="table-container">
                 <table>
                   <thead>
                     <tr>
-                      <th>Done</th>
-                      <th>Task</th>
+                      <th style={{ paddingLeft: '2rem' }}>Task</th>
                       <th>Owner</th>
                       <th>Due Date</th>
-                      <th>Status</th>
-                      {user?.role === 'PROPOSAL_MANAGER' && <th>Actions</th>}
+                      <th style={{ paddingRight: '2rem' }}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rfp.tasks.map((task) => (
-                      <tr key={task.id} style={{ opacity: task.status === 'COMPLETED' ? 0.6 : 1 }}>
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={task.status === 'COMPLETED'}
-                            onChange={() => handleUpdateTaskStatus(task.id, task.status)}
-                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                            disabled={user?.role === 'BID_REVIEWER'}
-                          />
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600, textDecoration: task.status === 'COMPLETED' ? 'line-through' : 'none' }}>{task.title}</div>
+                      <tr key={task.id} className="table-row-hover">
+                        <td style={{ paddingLeft: '2rem' }}>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>{task.title}</div>
                           {task.description && (
                             <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem' }}>
                               {task.description}
                             </div>
                           )}
                         </td>
-                        <td>{task.owner.firstName} {task.owner.lastName}</td>
                         <td>
-                          <span style={{ color: task.isOverdue && task.status !== 'COMPLETED' ? '#ef4444' : '#64748b' }}>
-                            {new Date(task.dueDate).toLocaleDateString()}
-                            {task.isOverdue && task.status !== 'COMPLETED' && ' (Overdue)'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '24px', height: '24px', background: '#f1f5f9', color: '#475569', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                              {task.owner.firstName?.[0]}
+                            </div>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{task.owner.firstName}</span>
+                          </div>
                         </td>
                         <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: task.isOverdue ? '#ef4444' : '#64748b', fontWeight: task.isOverdue ? 700 : 400 }}>
+                            <Clock size={14} />
+                            {new Date(task.dueDate).toLocaleDateString()}
+                          </div>
+                        </td>
+                        <td style={{ paddingRight: '2rem' }}>
                           <span className={`status-badge status-${task.status.toLowerCase()}`}>
                             {task.status.replace('_', ' ')}
                           </span>
                         </td>
-                        {user?.role === 'PROPOSAL_MANAGER' && (
-                          <td>
-                            <button onClick={() => handleDeleteTask(task.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.25rem' }}>
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -747,84 +1033,203 @@ const RFPDetail = ({ rfpId, onBack }) => {
         </div>
 
         {/* Sidebar */}
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Status & Milestones */}
           <div className="card">
-            <h4 style={{ fontWeight: 600, marginBottom: '1rem' }}>Progress</h4>
+            <h4 style={{ fontWeight: 800, marginBottom: '1.5rem', color: '#0f172a' }}>Progress</h4>
 
-            <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem' }}>Status</div>
-              <span className={`status-badge status-${rfp.status.toLowerCase()}`}>
-                {rfp.status.replace('_', ' ')}
-              </span>
+            <div style={{ marginBottom: '2rem' }}>
+              <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>Current Status</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <span className={`status-badge status-${rfp.status.toLowerCase()}`} style={{ fontSize: '0.85rem', padding: '0.6rem 1.25rem' }}>
+                  {rfp.status.replace('_', ' ')}
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {user?.role === 'ADMIN' && (
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ background: '#10b981', borderColor: '#10b981', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                      onClick={() => handleUpdateStatus('APPROVED')}
+                    >
+                      Approve
+                    </button>
+                  )}
+                  {(user?.role === 'ADMIN' || user?.role === 'PROPOSAL_MANAGER') && rfp.status !== 'TECHNICAL_FIX' && rfp.status !== 'APPROVED' && (
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ color: '#ef4444', borderColor: '#fee2e2', background: '#fef2f2', padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                      onClick={() => handleUpdateStatus('REJECTED')}
+                    >
+                      Reject
+                    </button>
+                  )}
+                  {rfp.status === 'REJECTED' && user?.role === 'ADMIN' && (
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ background: '#7c3aed', padding: '0.4rem 1.2rem', fontSize: '0.85rem', fontWeight: 800 }}
+                      onClick={() => handleUpdateStatus('TECHNICAL_FIX')}
+                    >
+                      Redirect to Tech Team
+                    </button>
+                  )}
+                  {rfp.status === 'TECHNICAL_FIX' && (user?.role === 'SOLUTION_ARCHITECT' || user?.role === 'ADMIN') && (
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ background: '#2563eb', padding: '0.4rem 1.2rem', fontSize: '0.85rem', fontWeight: 800 }}
+                      onClick={() => handleUpdateStatus('REVIEW')}
+                    >
+                      Submit Fix for Review
+                    </button>
+                  )}
+                  {rfp.status === 'REJECTED' && (user?.role === 'PROPOSAL_MANAGER' || user?.role === 'SOLUTION_ARCHITECT') && (
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ background: '#3b82f6', padding: '0.4rem 1.2rem', fontSize: '0.85rem', fontWeight: 800 }}
+                      onClick={() => {
+                        handleUpdateStatus('INTAKE');
+                      }}
+                    >
+                      Edit & Re-submit
+                    </button>
+                  )}
+                </div>
+              </div>
+              {(user?.role === 'ADMIN' || user?.role === 'PROPOSAL_MANAGER') && (
+                <button 
+                  className="btn btn-secondary" 
+                  style={{ width: '100%', marginTop: '1rem', fontSize: '0.85rem', color: '#64748b' }} 
+                  onClick={() => handleUpdateStatus('SUBMITTED')}
+                >
+                  Submit Proposal
+                </button>
+              )}
             </div>
 
-            <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem' }}>Completion</div>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#1e3a8a' }}>
-                {rfp.completionPercentage}%
+            <div style={{ marginBottom: '2rem' }}>
+              <div className="flex-between" style={{ marginBottom: '0.75rem' }}>
+                <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Completion</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input 
+                    type="number" 
+                    min="0" 
+                    max="100" 
+                    value={rfp.completionPercentage} 
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val)) {
+                        setRfp(prev => ({ ...prev, completionPercentage: val }));
+                      }
+                    }}
+                    onBlur={() => apiCall(`/rfps/${rfpId}`, { method: 'PATCH', body: JSON.stringify({ completionPercentage: rfp.completionPercentage }) }, token)}
+                    style={{ width: '50px', border: 'none', borderBottom: '1px solid #cbd5e1', textAlign: 'right', fontWeight: 800, color: '#2563eb', background: 'transparent' }} 
+                  />
+                  <span style={{ fontWeight: 800, color: '#2563eb' }}>%</span>
+                </div>
               </div>
               <div style={{
-                height: '12px',
-                background: '#e2e8f0',
-                borderRadius: '6px',
+                height: '10px',
+                background: '#f1f5f9',
+                borderRadius: '5px',
                 overflow: 'hidden',
-                marginTop: '0.5rem'
+                border: '1px solid #e2e8f0'
               }}>
                 <div style={{
                   height: '100%',
                   width: `${rfp.completionPercentage}%`,
-                  background: 'linear-gradient(90deg, #10b981, #059669)',
-                  transition: 'width 0.3s'
+                  background: 'linear-gradient(90deg, #2563eb, #3b82f6)',
+                  transition: 'width 0.4s ease'
                 }}></div>
               </div>
             </div>
 
             <div>
-              <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem' }}>Submission Deadline</div>
-              <div style={{ fontWeight: 600, fontSize: '1.1rem' }}>
-                {new Date(rfp.submissionDeadline).toLocaleDateString()}
-              </div>
-              <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem' }}>
-                {Math.ceil((new Date(rfp.submissionDeadline) - new Date()) / (1000 * 60 * 60 * 24))} days remaining
+              <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>Deadline</div>
+              <input 
+                type="date"
+                value={new Date(rfp.submissionDeadline).toISOString().split('T')[0]}
+                onChange={(e) => {
+                  const newDate = e.target.value;
+                  setRfp(prev => ({ ...prev, submissionDeadline: new Date(newDate).toISOString() }));
+                  apiCall(`/rfps/${rfpId}`, { method: 'PATCH', body: JSON.stringify({ submissionDeadline: newDate }) }, token);
+                }}
+                style={{ 
+                  fontWeight: 800, 
+                  fontSize: '1rem', 
+                  color: '#0f172a', 
+                  border: 'none', 
+                  background: '#f8fafc', 
+                  padding: '8px', 
+                  borderRadius: '6px',
+                  width: '100%',
+                  cursor: 'pointer'
+                }}
+              />
+              <div style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '0.5rem', fontWeight: 600 }}>
+                {Math.max(0, Math.ceil((new Date(rfp.submissionDeadline) - new Date()) / (1000 * 60 * 60 * 24)))} days remaining
               </div>
             </div>
           </div>
 
           {/* Milestones */}
           <div className="card">
-            <h4 style={{ fontWeight: 600, marginBottom: '1rem' }}>Milestones</h4>
-            {rfp.milestones.map((milestone, index) => (
-              <div key={milestone.id} style={{
-                marginBottom: '1rem',
-                paddingBottom: '1rem',
-                borderBottom: index < rfp.milestones.length - 1 ? '1px solid #e2e8f0' : 'none'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+            <h4 style={{ fontWeight: 800, marginBottom: '1.5rem', color: '#0f172a' }}>Milestones</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              {rfp.milestones.map((milestone, index) => (
+                <div key={milestone.id} style={{
+                  display: 'flex',
+                  gap: '1rem',
+                  position: 'relative',
+                  paddingBottom: index < rfp.milestones.length - 1 ? '1.25rem' : 0
+                }}>
+                  {index < rfp.milestones.length - 1 && (
+                    <div style={{ position: 'absolute', left: '10px', top: '24px', bottom: 0, width: '2px', background: '#f1f5f9' }}></div>
+                  )}
                   <div style={{
-                    width: '20px',
-                    height: '20px',
+                    width: '22px',
+                    height: '22px',
                     borderRadius: '50%',
-                    background: milestone.isCompleted ? '#10b981' : '#e2e8f0',
+                    background: milestone.isCompleted ? '#10b981' : 'white',
+                    border: `2px solid ${milestone.isCompleted ? '#10b981' : '#cbd5e1'}`,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    zIndex: 1,
+                    flexShrink: 0
                   }}>
                     {milestone.isCompleted && (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="white">
-                        <path d="M10 3L4.5 8.5L2 6" stroke="white" strokeWidth="2" fill="none" />
-                      </svg>
+                      <div style={{ width: '8px', height: '4px', borderLeft: '2px solid white', borderBottom: '2px solid white', transform: 'rotate(-45deg) translate(1px, -1px)' }}></div>
                     )}
                   </div>
-                  <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{milestone.title}</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: '0.95rem', color: milestone.isCompleted ? '#64748b' : '#0f172a' }}>{milestone.title}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+                      {new Date(milestone.targetDate).toLocaleDateString()}
+                    </div>
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: '1.75rem' }}>
-                  {new Date(milestone.targetDate).toLocaleDateString()}
-                  {milestone.isCompleted && milestone.completedDate &&
-                    ` • Completed ${new Date(milestone.completedDate).toLocaleDateString()}`}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </div>
+          {/* Immutable Work Trail */}
+          <div className="card" style={{ marginTop: '1.5rem', background: '#f8fafc', borderStyle: 'dashed' }}>
+            <h4 style={{ fontWeight: 800, marginBottom: '1.5rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Clock size={18} /> Immutable Work Trail
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {rfp.activityLogs && rfp.activityLogs.length > 0 ? (
+                rfp.activityLogs.map((log) => (
+                  <div key={log.id} style={{ fontSize: '0.85rem', padding: '0.75rem', background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 800, color: '#2563eb' }}>{log.user?.firstName} {log.user?.lastName}</span>
+                      <span style={{ color: '#94a3b8' }}>{new Date(log.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div style={{ color: '#475569', fontWeight: 600 }}>{log.description}</div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', padding: '2rem', color: '#94a3b8', fontStyle: 'italic' }}>No activity logs yet</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -835,6 +1240,124 @@ const RFPDetail = ({ rfpId, onBack }) => {
 // ============================================
 // CREATE RFP COMPONENT
 // ============================================
+
+// ============================================
+// ADMIN PANEL COMPONENT
+// ============================================
+
+const AdminPanel = () => {
+  const { token } = useAuth();
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAdminData();
+  }, []);
+
+  const fetchAdminData = async () => {
+    try {
+      const [statsData, usersData] = await Promise.all([
+        apiCall('/admin/stats', {}, token),
+        apiCall('/admin/users', {}, token)
+      ]);
+      setStats(statsData);
+      setUsers(usersData.users);
+    } catch (error) {
+      console.error('Admin fetch error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignCoAdmin = async (userId) => {
+    try {
+      await apiCall('/admin/assign-coadmin', {
+        method: 'POST',
+        body: JSON.stringify({ userId })
+      }, token);
+      fetchAdminData(); // Refresh
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+
+  if (loading) return <div className="flex-center" style={{ height: '200px' }}><div className="spinner"></div></div>;
+
+  return (
+    <div>
+      <div style={{ marginBottom: '2.5rem' }}>
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>Admin Panel</h1>
+        <p style={{ color: '#64748b', fontSize: '1.1rem' }}>Enterprise governance and delegation</p>
+      </div>
+
+      <div className="card" style={{ marginBottom: '2rem', background: 'linear-gradient(135deg, #1e293b, #0f172a)', color: 'white' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.5rem' }}>Co-Admin Allocation</h3>
+            <p style={{ color: '#94a3b8' }}>Authorized delegate slots for enterprise governance</p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#3b82f6' }}>
+              {stats?.coAdminAllocation.current} / {stats?.coAdminAllocation.max}
+            </div>
+            <div style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.1em' }}>Slots Filled</div>
+          </div>
+        </div>
+        <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', marginTop: '1.5rem', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${(stats?.coAdminAllocation.current / stats?.coAdminAllocation.max) * 100}%`, background: '#3b82f6' }}></div>
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 0 }}>
+        <div style={{ padding: '1.5rem', borderBottom: '1px solid #f1f5f9' }}>
+          <h3 style={{ fontWeight: 800 }}>User Management</h3>
+        </div>
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style={{ paddingLeft: '2rem' }}>User</th>
+                <th>Role</th>
+                <th>Current Status</th>
+                <th style={{ paddingRight: '2rem', textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id}>
+                  <td style={{ paddingLeft: '2rem' }}>
+                    <div style={{ fontWeight: 700 }}>{u.firstName} {u.lastName}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.email}</div>
+                  </td>
+                  <td>
+                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: u.role === 'ADMIN' ? '#2563eb' : '#64748b' }}>
+                      {u.role.replace('_', ' ')}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="status-dot active"></span> Active
+                  </td>
+                  <td style={{ paddingRight: '2rem', textAlign: 'right' }}>
+                    {(u.role === 'PROPOSAL_MANAGER' || u.role === 'SOLUTION_ARCHITECT') && (
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
+                        onClick={() => handleAssignCoAdmin(u.id)}
+                      >
+                        Assign Co-Admin
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const CreateRFPForm = ({ onCancel, onSuccess }) => {
   const { token } = useAuth();
@@ -848,6 +1371,76 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [rawDocument, setRawDocument] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [targetPageCount, setTargetPageCount] = useState(10);
+  const [aiGenerating, setAiGenerating] = useState(false);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 100 * 1024 * 1024) {
+        setError('File size exceeds 100MB limit.');
+        return;
+      }
+      setSelectedFile(file);
+      setError('');
+    }
+  };
+
+  const handleDownload = () => {
+    if (!formData.executiveSummary) return;
+    const blob = new Blob([formData.executiveSummary], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${formData.projectTitle || 'Proposal'}_Summary_${targetPageCount}Pages.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleAIGenerate = async () => {
+    if (!rawDocument.trim() && !selectedFile) {
+      setError('Please provide raw document text or attach a file to analyze.');
+      return;
+    }
+    
+    setAiGenerating(true);
+    setError('');
+    
+    try {
+      const dataToSend = new FormData();
+      if (selectedFile) {
+        dataToSend.append('file', selectedFile);
+      } else {
+        dataToSend.append('documentText', rawDocument);
+      }
+      dataToSend.append('targetPageCount', targetPageCount);
+
+      const response = await fetch(`${API_URL}/ai/analyze-rfp`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+          // Content-Type is set automatically by FormData
+        },
+        body: dataToSend
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'AI Generation failed. Ensure Anthropic API key is configured.');
+      }
+
+      const data = await response.json();
+      setFormData(prev => ({ ...prev, executiveSummary: data.result }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAiGenerating(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -876,17 +1469,18 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
   };
 
   return (
-    <div className="card">
-      <h2 className="card-title" style={{ marginBottom: '1.5rem' }}>Create New RFP</h2>
+    <div className="card" style={{ maxWidth: '900px', margin: '0 auto' }}>
+      <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '2rem', color: '#0f172a' }}>Create New RFP</h2>
 
       <form onSubmit={handleSubmit}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
           <div className="form-group">
             <label className="form-label">Client Name *</label>
             <input
               type="text"
               name="clientName"
               className="form-input"
+              placeholder="e.g. Acme Corp"
               value={formData.clientName}
               onChange={handleChange}
               required
@@ -920,24 +1514,164 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
             type="text"
             name="projectTitle"
             className="form-input"
+            placeholder="e.g. Digital Transformation 2024"
             value={formData.projectTitle}
             onChange={handleChange}
             required
           />
         </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '1.5rem', alignItems: 'start', marginBottom: '2rem' }}>
+          {/* Left: Raw Text */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Raw Document / Context</label>
+            <textarea
+              className="form-textarea"
+              placeholder="Paste RFP text here..."
+              rows="6"
+              value={rawDocument}
+              onChange={(e) => setRawDocument(e.target.value)}
+              style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+              disabled={!!selectedFile}
+            />
+          </div>
+
+          {/* Middle: OR */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', paddingTop: '1.5rem' }}>
+            <div style={{ width: '1px', height: '40px', background: '#e2e8f0', marginBottom: '10px' }}></div>
+            <span style={{ fontWeight: 900, color: '#94a3b8', fontSize: '0.9rem' }}>OR</span>
+            <div style={{ width: '1px', height: '40px', background: '#e2e8f0', marginTop: '10px' }}></div>
+          </div>
+
+          {/* Right: File Upload */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Attach Document</label>
+            <div style={{
+              border: '2px dashed #cbd5e1',
+              borderRadius: '0.75rem',
+              padding: '1.5rem',
+              textAlign: 'center',
+              background: selectedFile ? '#eff6ff' : '#f8fafc',
+              borderColor: selectedFile ? '#2563eb' : '#cbd5e1',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              height: '145px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }} onClick={() => document.getElementById('file-upload').click()}>
+              <FileUp size={32} color={selectedFile ? '#2563eb' : '#94a3b8'} style={{ marginBottom: '0.75rem' }} />
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: selectedFile ? '#2563eb' : '#64748b' }}>
+                {selectedFile ? selectedFile.name : 'PDF, Word, CSV (Max 100MB)'}
+              </div>
+              <input 
+                id="file-upload"
+                type="file" 
+                hidden 
+                accept=".pdf,.doc,.docx,.csv,text/plain"
+                onChange={handleFileChange}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Variant Selection */}
+        <div style={{ marginBottom: '2rem', padding: '1rem', background: '#f8fafc', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}>
+          <label className="form-label" style={{ marginBottom: '1rem' }}>AI Detail Level (Target Content Length)</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+            {[5, 10, 15].map(pages => (
+              <button
+                key={pages}
+                type="button"
+                onClick={() => setTargetPageCount(pages)}
+                style={{
+                  padding: '0.75rem',
+                  borderRadius: '0.5rem',
+                  border: '1px solid',
+                  borderColor: targetPageCount === pages ? '#2563eb' : '#e2e8f0',
+                  background: targetPageCount === pages ? '#eff6ff' : 'white',
+                  color: targetPageCount === pages ? '#2563eb' : '#64748b',
+                  fontWeight: 800,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+              >
+                {pages} Pages Version
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button 
+          type="button" 
+          onClick={handleAIGenerate}
+          disabled={aiGenerating}
+          style={{ 
+            marginBottom: '2rem', width: '100%', padding: '1rem', background: 'linear-gradient(135deg, #1e1b4b, #312e81)', 
+            color: 'white', border: 'none', borderRadius: '0.75rem', fontWeight: 900, cursor: aiGenerating ? 'wait' : 'pointer',
+            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', boxShadow: '0 10px 15px -3px rgba(30, 27, 75, 0.4)',
+            fontSize: '1rem'
+          }}
+        >
+          {aiGenerating ? (
+            <div className="spinner" style={{ width: '20px', height: '20px', borderWidth: '3px', borderTopColor: 'white' }}></div>
+          ) : <span style={{ fontSize: '1.2rem' }}>✨</span>}
+          {aiGenerating ? 'Claude is processing document...' : 'AI Generate / Elaborate Proposal'}
+        </button>
+
         <div className="form-group">
-          <label className="form-label">Executive Summary</label>
+          <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            Generated Proposal / Summary
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+               <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleDownload}
+                disabled={!formData.executiveSummary}
+                style={{ 
+                  padding: '0.4rem 0.8rem', 
+                  fontSize: '0.75rem', 
+                  gap: '6px', 
+                  color: '#2563eb', 
+                  borderColor: '#dbeafe',
+                  background: '#f0f9ff'
+                }}
+              >
+                <Download size={14} />
+                Download Markdown
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                onClick={handleAIGenerate}
+                disabled={aiGenerating}
+                style={{ 
+                  padding: '0.4rem 0.8rem', 
+                  fontSize: '0.75rem', 
+                  gap: '6px', 
+                  color: '#7c3aed', 
+                  borderColor: '#ddd6fe',
+                  background: '#f5f3ff'
+                }}
+              >
+                <Zap size={14} fill="#7c3aed" />
+                Refine with AI
+              </button>
+            </div>
+          </label>
           <textarea
             name="executiveSummary"
             className="form-textarea"
-            rows="4"
+            placeholder="Result will appear here..."
             value={formData.executiveSummary}
             onChange={handleChange}
+            style={{ minHeight: '300px', lineHeight: 1.6, fontSize: '0.95rem' }}
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginTop: '1.5rem' }}>
           <div className="form-group">
             <label className="form-label">Submission Deadline *</label>
             <input
@@ -951,11 +1685,12 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Estimated Deal Value ($) *</label>
+            <label className="form-label">Estimated Deal Value ($)</label>
             <input
               type="number"
               name="estimatedDealValue"
               className="form-input"
+              placeholder="e.g. 5000000"
               value={formData.estimatedDealValue}
               onChange={handleChange}
               required
@@ -964,17 +1699,59 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
         </div>
 
         {error && (
-          <div style={{ padding: '0.75rem', background: '#fee2e2', color: '#991b1b', borderRadius: '0.5rem', marginBottom: '1rem' }}>
+          <div style={{
+            padding: '1rem',
+            background: '#fff1f2',
+            color: '#e11d48',
+            borderRadius: '0.65rem',
+            margin: '1.5rem 0',
+            border: '1px solid #fda4af',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <AlertTriangle size={18} />
             {error}
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-          <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Creating...' : 'Create RFP'}
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={onCancel}>
-            Cancel
+        <div style={{ display: 'flex', gap: '1rem', marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '1px solid #f1f5f9' }}>
+          {!formData.executiveSummary ? (
+            <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex: 1, padding: '1rem' }}>
+              {loading ? 'Creating...' : 'Save Draft & Exit'}
+            </button>
+          ) : (
+            <>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                style={{ flex: 1, padding: '1rem', background: '#10b981', borderColor: '#10b981' }} 
+                onClick={(e) => {
+                  setFormData(prev => ({ ...prev, status: 'REVIEW' }));
+                  handleSubmit(e);
+                }}
+                disabled={loading}
+              >
+                {loading ? 'Submitting...' : 'Yes, I am satisfied (Send to Admin)'}
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                style={{ flex: 1, padding: '1rem', color: '#ef4444', borderColor: '#fee2e2', background: '#fef2f2' }} 
+                onClick={(e) => {
+                  setFormData(prev => ({ ...prev, status: 'REJECTED' }));
+                  handleSubmit(e);
+                }}
+                disabled={loading}
+              >
+                {loading ? 'Rejecting...' : 'No, Request Technical Fix'}
+              </button>
+            </>
+          )}
+          <button type="button" className="btn btn-secondary" onClick={onCancel} style={{ flex: !formData.executiveSummary ? 1 : 0.4, padding: '1rem' }}>
+            Discard
           </button>
         </div>
       </form>
@@ -983,17 +1760,23 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
 };
 
 // ============================================
-// MY TASKS COMPONENT
+// TASKS VIEW COMPONENT
 // ============================================
 
-const MyTasks = () => {
-  const { token } = useAuth();
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
+const TasksView = ({ initialTasks, loading: propLoading, onRefresh }) => {
+  const { token, user } = useAuth();
+  const [tasks, setTasks] = useState(initialTasks || []);
+  const [loading, setLoading] = useState(!initialTasks);
+  const [filter, setFilter] = useState('ALL'); // ALL, PENDING, COMPLETED
 
   useEffect(() => {
-    fetchTasks();
-  }, []);
+    if (initialTasks) {
+      setTasks(initialTasks);
+      setLoading(propLoading);
+    } else {
+      fetchTasks();
+    }
+  }, [initialTasks, propLoading]);
 
   const fetchTasks = async () => {
     try {
@@ -1006,146 +1789,456 @@ const MyTasks = () => {
     }
   };
 
-  const handleToggleStatus = async (task) => {
-    const newStatus = task.status === 'COMPLETED' ? 'NOT_STARTED' : 'COMPLETED';
-    setTasks(tasks.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+  const handleToggleTask = async (task) => {
+    // Optimistic UI update
+    const newStatus = task.status === 'COMPLETED' ? 'IN_PROGRESS' : 'COMPLETED';
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+
     try {
       await apiCall(`/tasks/${task.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: newStatus })
       }, token);
-      fetchTasks();
+      if (onRefresh) onRefresh();
     } catch (error) {
-      fetchTasks();
-      alert('Failed to update task status');
+      console.error('Failed to update task:', error);
+      // Rollback on error
+      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: task.status } : t));
     }
   };
 
-  if (loading) return <div className="loading"><div className="spinner"></div></div>;
+  const filteredTasks = tasks.filter(task => {
+    if (filter === 'PENDING') return task.status !== 'COMPLETED';
+    if (filter === 'COMPLETED') return task.status === 'COMPLETED';
+    return true;
+  });
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '0.5rem' }}>My Tasks</h1>
-        <p style={{ color: '#64748b' }}>Manage your assigned workload across all RFPs</p>
+      <div className="flex-between" style={{ marginBottom: '2.5rem' }}>
+        <div>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>My Tasks</h1>
+          <p style={{ color: '#64748b', fontSize: '1.1rem' }}>Aggregated workload across all active proposals</p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', background: '#f1f5f9', padding: '0.4rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0' }}>
+          <button
+            className={`btn ${filter === 'ALL' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter('ALL')}
+            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+          >All</button>
+          <button
+            className={`btn ${filter === 'PENDING' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter('PENDING')}
+            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+          >Pending</button>
+          <button
+            className={`btn ${filter === 'COMPLETED' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter('COMPLETED')}
+            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+          >Completed</button>
+        </div>
       </div>
 
-      <div className="card">
-        {tasks.length === 0 ? (
-          <div className="empty-state">No tasks assigned to you</div>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: '48px' }}></th>
+                <th>Task Title</th>
+                <th>RFP Project</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th>Priority</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
                 <tr>
-                  <th>Done</th>
-                  <th>Task</th>
-                  <th>RFP</th>
-                  <th>Due Date</th>
-                  <th>Status</th>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '4rem' }}>
+                    <div className="spinner" style={{ margin: '0 auto' }}></div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {tasks.map(task => (
-                  <tr key={task.id} style={{ opacity: task.status === 'COMPLETED' ? 0.6 : 1 }}>
-                    <td>
+              ) : filteredTasks.length === 0 ? (
+                <tr>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '5rem 2rem', color: '#64748b' }}>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>No tasks found</div>
+                    <p>Tasks assigned to you will appear here.</p>
+                  </td>
+                </tr>
+              ) : (
+                filteredTasks.map((task) => (
+                  <tr key={task.id} className="table-row-hover">
+                    <td style={{ paddingLeft: '1.5rem' }}>
                       <input
                         type="checkbox"
                         checked={task.status === 'COMPLETED'}
-                        onChange={() => handleToggleStatus(task)}
+                        onChange={() => handleToggleTask(task)}
                         style={{ width: '18px', height: '18px', cursor: 'pointer' }}
                       />
                     </td>
+                    <td style={{ fontWeight: 700, color: task.status === 'COMPLETED' ? '#94a3b8' : '#0f172a', textDecoration: task.status === 'COMPLETED' ? 'line-through' : 'none' }}>
+                      {task.title}
+                    </td>
                     <td>
-                      <div style={{ fontWeight: 600, textDecoration: task.status === 'COMPLETED' ? 'line-through' : 'none' }}>
-                        {task.title}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <FileText size={14} color="#64748b" />
+                        <span style={{ fontSize: '0.9rem', color: '#475569' }}>{task.rfp.projectTitle}</span>
                       </div>
-                      {task.description && <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{task.description}</div>}
                     </td>
-                    <td>{task.rfp?.projectTitle} ({task.rfp?.rfpNumber})</td>
-                    <td>
-                      <span style={{ color: task.isOverdue && task.status !== 'COMPLETED' ? '#ef4444' : '#64748b' }}>
+                    <td style={{ color: task.isOverdue && task.status !== 'COMPLETED' ? '#ef4444' : '#64748b', fontWeight: task.isOverdue && task.status !== 'COMPLETED' ? 700 : 400 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <Clock size={14} />
                         {new Date(task.dueDate).toLocaleDateString()}
-                        {task.isOverdue && task.status !== 'COMPLETED' && ' (Overdue)'}
-                      </span>
+                      </div>
                     </td>
                     <td>
-                      <span className={`status-badge status-${task.status.toLowerCase()}`}>
+                      <span className={`status-badge status-${task.status.toLowerCase().replace(' ', '_')}`}>
                         {task.status.replace('_', ' ')}
                       </span>
                     </td>
+                    <td>
+                      {task.isEscalated ? (
+                        <span className="risk-badge risk-red">High Priority</span>
+                      ) : (
+                        <span className="risk-badge risk-green">Normal</span>
+                      )}
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 };
 
 // ============================================
-// ANALYTICS & ACTIVITY COMPONENT
+// ANALYTICS VIEW COMPONENT
 // ============================================
 
-const AnalyticsView = () => {
-  const { token } = useAuth();
-  const [activities, setActivities] = useState([]);
-  const [loading, setLoading] = useState(true);
+const Dashboard = ({ data: propData, loading: propLoading, onRefresh, onViewRFP, onCreateRFP }) => {
+  const { token, user } = useAuth();
+  const [internalData, setInternalData] = useState(() => {
+    // Immediate restoration from cache for "Fast Load" feel
+    const cached = localStorage.getItem('rfp_dash_cache');
+    return cached ? JSON.parse(cached) : null;
+  });
+  const [internalLoading, setInternalLoading] = useState(!internalData);
+
+  // Use props if available, otherwise use internal state
+  const data = propData || internalData;
+  const loading = propData ? propLoading : (internalLoading && !internalData);
 
   useEffect(() => {
-    fetchActivities();
-  }, []);
+    if (!propData) {
+      fetchDashboardData();
+    }
+  }, [propData]);
 
-  const fetchActivities = async () => {
+  const fetchDashboardData = async () => {
     try {
-      const data = await apiCall('/activities?limit=100', {}, token);
-      setActivities(data.activities);
+      const result = await apiCall('/dashboard/executive', {}, token);
+      setInternalData(result);
+      // Persist to cache
+      localStorage.setItem('rfp_dash_cache', JSON.stringify(result));
     } catch (error) {
-      console.error('Failed to fetch activities', error);
+      console.error('Failed to fetch dashboard:', error);
     } finally {
-      setLoading(false);
+      setInternalLoading(false);
     }
   };
 
-  if (loading) return <div className="loading"><div className="spinner"></div></div>;
+  // If we have cached data, we show it instantly. If not, we show a clean skeleton grid.
+  if (!data && loading) {
+    return (
+      <div style={{ padding: '2rem' }}>
+        <div className="skeleton-title skeleton" style={{ marginBottom: '2rem' }}></div>
+        <div className="kpi-grid">
+          {[1,2,3,4].map(i => <div key={i} className="skeleton-card skeleton" style={{ height: '160px' }}></div>)}
+        </div>
+      </div>
+    );
+  }
+
+  const isAdmin = user?.role === 'ADMIN';
 
   return (
     <div>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '0.5rem' }}>Global Activity Feed</h1>
-        <p style={{ color: '#64748b' }}>Audit trail of actions across the command center</p>
+      <div className="flex-between" style={{ marginBottom: '2.5rem', alignItems: 'flex-start' }}>
+        <div>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a' }}>
+            {isAdmin ? "Executive Overview" : "My Workspace"}
+          </h1>
+          <p style={{ color: '#64748b', marginTop: '0.5rem', fontSize: '1.1rem' }}>
+            {isAdmin ? "Real-time insights into proposal pipeline and performance." : "Your active proposals and task progress."}
+          </p>
+        </div>
+        {(user?.role === 'PROPOSAL_MANAGER' || user?.role === 'SOLUTION_ARCHITECT' || user?.role === 'ADMIN' || user?.role === 'CO_ADMIN') && (
+          <button className="btn btn-primary" onClick={onCreateRFP} style={{ gap: '0.5rem' }}>
+            <Plus size={20} />
+            New Proposal
+          </button>
+        )}
       </div>
 
-      <div className="card">
-        {activities.length === 0 ? (
-          <div className="empty-state">No recent activity</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {activities.map(act => (
-              <div key={act.id} style={{ display: 'flex', gap: '1rem', paddingBottom: '1rem', borderBottom: '1px solid #e2e8f0' }}>
-                <div style={{
-                  width: '40px', height: '40px', borderRadius: '50%',
-                  background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 600, color: '#1e3a8a', flexShrink: 0
-                }}>
-                  {act.user.firstName[0]}{act.user.lastName[0]}
+      <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: isAdmin ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)', gap: '1.5rem' }}>
+        {isAdmin && (
+          <div className="kpi-card-new blue">
+            <div className="kpi-header">
+              <span>Pipeline Value</span>
+              <DollarSign size={20} color="#2563eb" />
+            </div>
+            <div className="kpi-value-new">${(data.kpis.totalPipelineValue / 1000000).toFixed(1)}M</div>
+            <div className="kpi-footer" style={{ color: '#10b981' }}>↗ +12% from last month</div>
+          </div>
+        )}
+
+        <div className="kpi-card-new purple">
+          <div className="kpi-header">
+            <span>Active RFPs</span>
+            <FileText size={20} color="#8b5cf6" />
+          </div>
+          <div className="kpi-value-new">{data.kpis.activeRFPs}</div>
+          <div className="kpi-footer">Currently in progress</div>
+        </div>
+
+        {isAdmin && (
+          <div className="kpi-card-new red">
+            <div className="kpi-header">
+              <span>At Risk</span>
+              <AlertTriangle size={20} color="#ef4444" />
+            </div>
+            <div className="kpi-value-new">{data.kpis.rfpsAtRisk}</div>
+            <div className="kpi-footer">Requiring immediate attention</div>
+          </div>
+        )}
+
+        <div className="kpi-card-new green">
+          <div className="kpi-header">
+            <span>Win Rate</span>
+            <TrendingUp size={20} color="#10b981" />
+          </div>
+          <div className="kpi-value-new">{data.kpis.winRate}%</div>
+          <div className="kpi-footer">Based on last 12 months</div>
+        </div>
+      </div>
+
+      {isAdmin && data.rejectedRFPs && data.rejectedRFPs.length > 0 && (
+        <div className="card" style={{ marginTop: '1.5rem', border: '2px solid #fee2e2' }}>
+          <div className="flex-between" style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ fontWeight: 800, color: '#991b1b' }}>Rejected Proposals (Admin Review)</h3>
+            <span className="status-badge" style={{ background: '#fee2e2', color: '#991b1b' }}>{data.rejectedRFPs.length} Pending Actions</span>
+          </div>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>RFP Title</th>
+                  <th>Manager</th>
+                  <th>Date Rejected</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rejectedRFPs.map(rfp => (
+                  <tr key={rfp.id}>
+                    <td style={{ fontWeight: 700 }}>{rfp.projectTitle}</td>
+                    <td>{rfp.proposalManager.firstName} {rfp.proposalManager.lastName}</td>
+                    <td>{new Date(rfp.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      <button 
+                        className="btn btn-secondary" 
+                        onClick={() => onViewRFP(rfp.id)}
+                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.75rem', fontWeight: 800 }}
+                      >
+                        Review Proposal
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="dashboard-sections">
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
+            <h3 style={{ fontWeight: 800 }}>RFP Volume by Status</h3>
+          </div>
+          <div style={{ height: '320px', display: 'flex', alignItems: 'flex-end', gap: '2rem', paddingTop: '1rem', paddingBottom: '1rem' }}>
+            {data.charts.statusDistribution.map(item => (
+              <div key={item.status} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                <div style={{ position: 'relative', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <div style={{
+                    width: '36px',
+                    height: `${(item.count / Math.max(...data.charts.statusDistribution.map(i => i.count), 1)) * 240}px`,
+                    background: 'linear-gradient(180deg, #2563eb 0%, #3b82f6 100%)',
+                    borderRadius: '8px 8px 0 0',
+                    transition: 'height 0.4s ease',
+                    border: '1px solid rgba(0,0,0,0.05)'
+                  }}></div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, marginTop: '0.75rem', color: '#0f172a' }}>{item.count}</div>
                 </div>
-                <div>
-                  <div style={{ marginBottom: '0.25rem' }}>
-                    <span style={{ fontWeight: 600 }}>{act.user.firstName} {act.user.lastName}</span>
-                    {' '}<span style={{ color: '#64748b' }}>{act.description}</span>
-                  </div>
-                  <div style={{ fontSize: '0.85rem', color: '#94a3b8', display: 'flex', gap: '1rem' }}>
-                    <span>{new Date(act.createdAt).toLocaleString()}</span>
-                    {act.rfp && <span>RFP: {act.rfp.rfpNumber}</span>}
-                  </div>
+                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'center' }}>
+                  {item.status.replace('_', ' ')}
                 </div>
               </div>
             ))}
           </div>
+        </div>
+
+        <div className="card">
+          <h3 style={{ fontWeight: 800, marginBottom: '0.5rem' }}>Risk Distribution</h3>
+          <p style={{ color: '#94a3b8', fontSize: '0.9rem', marginBottom: '2rem' }}>Current risk assessment of active RFPs</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            {data.charts.riskDistribution.map(risk => (
+              <div key={risk.level}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                  <span style={{ fontWeight: 800, color: risk.level === 'RED' ? '#ef4444' : risk.level === 'AMBER' ? '#f59e0b' : '#10b981' }}>{risk.level}</span>
+                  <span style={{ fontWeight: 800 }}>{risk.count} RFPs</span>
+                </div>
+                <div style={{ height: '10px', background: '#f1f5f9', borderRadius: '5px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${(risk.count / data.kpis.activeRFPs) * 100}%`,
+                    background: risk.level === 'RED' ? '#ef4444' : risk.level === 'AMBER' ? '#f59e0b' : '#10b981'
+                  }}></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: '1.5rem' }}>
+        <h3 style={{ fontWeight: 800, marginBottom: '2rem' }}>Recent Activity</h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {data.recentActivity.slice(0, 5).map((activity, idx) => (
+            <div key={activity.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '1.25rem', paddingBottom: '1.25rem', borderBottom: idx < 4 ? '1px solid #f1f5f9' : 'none' }}>
+              <div style={{ padding: '0.6rem', background: '#eff6ff', borderRadius: '10px', color: '#2563eb', border: '1px solid #dbeafe' }}>
+                <Clock size={18} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '0.95rem', fontWeight: 600 }}>
+                  <span style={{ color: '#2563eb', fontWeight: 800 }}>{activity.user.firstName} {activity.user.lastName}</span>
+                  {' '}<span style={{ color: '#475569' }}>{activity.action.toLowerCase().replace('_', ' ')}</span>
+                  {activity.rfp && <span> on <span style={{ color: '#0f172a', fontWeight: 700 }}>{activity.rfp.clientName}</span></span>}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span>{new Date(activity.createdAt).toLocaleTimeString()}</span>
+                  <span>•</span>
+                  <span>{new Date(activity.createdAt).toLocaleDateString()}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+const SettingsView = () => {
+  const { user, token, logout, updateUser } = useAuth();
+  const [firstName, setFirstName] = useState(user?.firstName || '');
+  const [lastName, setLastName] = useState(user?.lastName || '');
+  const [updating, setUpdating] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+
+  const handleUpdateProfile = async (e) => {
+    e.preventDefault();
+    setUpdating(true);
+    setMessage({ type: '', text: '' });
+    try {
+      await apiCall('/auth/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ firstName, lastName })
+      }, token);
+      
+      // Update global context immediately
+      updateUser({ firstName, lastName });
+      
+      setMessage({ type: 'success', text: 'Profile updated successfully!' });
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to update profile.' });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: '900px' }}>
+      <div style={{ marginBottom: '3rem' }}>
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>Settings</h1>
+        <p style={{ color: '#64748b', fontSize: '1.1rem' }}>Manage your account and preferences</p>
+      </div>
+
+      <form onSubmit={handleUpdateProfile} className="card" style={{ marginBottom: '2rem' }}>
+        <h3 style={{ fontWeight: 800, marginBottom: '2rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1rem' }}>Profile Settings</h3>
+        
+        {message.text && (
+          <div style={{ 
+            padding: '1rem', 
+            borderRadius: '8px', 
+            marginBottom: '1.5rem',
+            background: message.type === 'success' ? '#f0fdf4' : '#fef2f2',
+            color: message.type === 'success' ? '#166534' : '#991b1b',
+            border: `1px solid ${message.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+            fontWeight: 600
+          }}>
+            {message.text}
+          </div>
         )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+          <div className="form-group">
+            <label className="form-label">First Name</label>
+            <input type="text" className="form-input" value={firstName} onChange={(e) => setFirstName(e.target.value)} style={{ fontWeight: 600 }} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Last Name</label>
+            <input type="text" className="form-input" value={lastName} onChange={(e) => setLastName(e.target.value)} style={{ fontWeight: 600 }} />
+          </div>
+          <div className="form-group" style={{ gridColumn: 'span 2' }}>
+            <label className="form-label">Email Address</label>
+            <input type="email" className="form-input" value={user?.email} disabled style={{ fontWeight: 600, background: '#f8fafc' }} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">System Role</label>
+            <div style={{ padding: '0.875rem 1rem', background: '#f8fafc', borderRadius: '0.65rem', fontWeight: 800, border: 'var(--border-fine)', color: '#2563eb', fontSize: '0.9rem', display: 'inline-block' }}>
+              {user?.role?.replace('_', ' ')}
+            </div>
+          </div>
+        </div>
+        
+        <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+          <button type="submit" className="btn btn-primary" disabled={updating}>
+            {updating ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+
+
+      <div className="card" style={{ marginBottom: '2rem' }}>
+        <h3 style={{ fontWeight: 800, marginBottom: '2rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1rem' }}>Organization</h3>
+        <div className="form-group">
+          <label className="form-label">Organization Name</label>
+          <input type="text" className="form-input" value="Enterprise" disabled style={{ fontWeight: 600 }} />
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontWeight: 800, marginBottom: '2rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '1rem' }}>Security</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <p style={{ color: '#64748b', fontSize: '0.95rem' }}>Keep your account secure by updating your password regularly.</p>
+          <button className="btn btn-secondary" style={{ color: '#2563eb', fontWeight: 800 }}>
+            Change Password
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1159,35 +2252,62 @@ const AppLayout = () => {
   const { user, logout, token } = useAuth();
   const [currentView, setCurrentView] = useState('dashboard');
   const [selectedRFPId, setSelectedRFPId] = useState(null);
-
-  const [notifications, setNotifications] = useState([]);
+  const [dashboardData, setDashboardData] = useState(null);
+  const [rfpsData, setRfpsData] = useState([]);
+  const [tasksData, setTasksData] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [showNotifications, setShowNotifications] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
-    fetchNotifications();
+    if (token) fetchInitialData();
   }, [token]);
 
-  const fetchNotifications = async () => {
+  const fetchInitialData = async () => {
     try {
-      const data = await apiCall('/notifications', {}, token);
-      setNotifications(data.notifications);
-      setUnreadCount(data.unreadCount);
-    } catch (err) { console.error('Failed to fetch notifications', err); }
+      // Background revalidation: fetch everything but don't show global spinner if we already have some data
+      const [dash, rfps, tasks, notify] = await Promise.all([
+        apiCall('/dashboard/executive', {}, token),
+        apiCall('/rfps', {}, token),
+        apiCall('/tasks', {}, token),
+        apiCall('/dashboard/my-rfps', {}, token)
+      ]);
+      setDashboardData(dash);
+      setRfpsData(rfps.rfps);
+      setTasksData(tasks.tasks);
+      setUnreadCount(notify.unreadCount || 0);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    } finally {
+      setDataLoading(false);
+    }
   };
 
-  const handleMarkAsRead = async (id) => {
+  const refreshDashboard = async () => {
     try {
-      await apiCall(`/notifications/${id}/read`, { method: 'PATCH' }, token);
-      fetchNotifications();
-    } catch (err) { console.error('Failed to update notification', err); }
+      const dash = await apiCall('/dashboard/executive', {}, token);
+      setDashboardData(dash);
+    } catch (e) {}
+  };
+
+  const refreshRFPs = async () => {
+    try {
+      const rfps = await apiCall('/rfps', {}, token);
+      setRfpsData(rfps.rfps);
+    } catch (e) {}
+  };
+
+  const refreshTasks = async () => {
+    try {
+      const tasks = await apiCall('/tasks', {}, token);
+      setTasksData(tasks.tasks);
+    } catch (e) {}
   };
 
   const navigation = [
     { id: 'dashboard', label: 'Dashboard', icon: Home },
     { id: 'rfps', label: 'RFPs', icon: FileText },
     { id: 'tasks', label: 'Tasks', icon: CheckSquare },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 }
+    ...(user?.role === 'ADMIN' ? [{ id: 'admin-panel', label: 'Admin Panel', icon: Settings }] : [])
   ];
 
   const handleViewRFP = (rfpId) => {
@@ -1208,31 +2328,17 @@ const AppLayout = () => {
     setCurrentView('rfps');
   };
 
-  const renderContent = () => {
-    switch (currentView) {
-      case 'dashboard':
-        return <Dashboard />;
-      case 'rfps':
-        return <RFPList onViewRFP={handleViewRFP} onCreateRFP={handleCreateRFP} />;
-      case 'rfp-detail':
-        return <RFPDetail rfpId={selectedRFPId} onBack={handleBackToList} />;
-      case 'create-rfp':
-        return <CreateRFPForm onCancel={handleBackToList} onSuccess={handleRFPCreated} />;
-      case 'tasks':
-        return <MyTasks />;
-      case 'analytics':
-        return <AnalyticsView />;
-      default:
-        return <Dashboard />;
-    }
-  };
+
+  const [showLogout, setShowLogout] = useState(false);
 
   return (
     <div className="app-container">
       <aside className="sidebar">
-        <div className="sidebar-header">
-          <h1 className="sidebar-logo">RFP Command Center</h1>
-          <p className="sidebar-subtitle">RFP Command Center</p>
+        <div className="sidebar-header" onClick={() => { setCurrentView('dashboard'); setSelectedRFPId(null); }} style={{ cursor: 'pointer' }}>
+          <div className="sidebar-logo">
+            <FileText size={20} />
+          </div>
+          <h1 className="sidebar-title">RFP Command</h1>
         </div>
 
         <nav className="sidebar-nav">
@@ -1241,7 +2347,7 @@ const AppLayout = () => {
             return (
               <button
                 key={item.id}
-                className={`nav-item ${currentView === item.id ? 'active' : ''}`}
+                className={`nav-item ${currentView === item.id || (currentView === 'rfp-detail' && item.id === 'rfps') ? 'active' : ''}`}
                 onClick={() => setCurrentView(item.id)}
               >
                 <Icon size={20} />
@@ -1249,79 +2355,139 @@ const AppLayout = () => {
               </button>
             );
           })}
+          <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => setCurrentView('settings')}>
+            <Settings size={20} />
+            Settings
+          </button>
         </nav>
 
-        <div className="sidebar-footer">
-          <div className="user-profile">
-            <div className="user-avatar">
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </div>
-            <div className="user-info">
-              <div className="user-name">{user?.firstName} {user?.lastName}</div>
-              <div className="user-role">{user?.role?.replace('_', ' ')}</div>
+        <div className="sidebar-footer" style={{ borderTop: 'var(--border-fine)' }}>
+          <div className="team-status-card" style={{ border: 'var(--border-fine)', background: 'white' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: '0.65rem', color: '#64748b', fontWeight: 800, marginBottom: '0.5rem', letterSpacing: '0.05em' }}>System Status</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>
+              <span className="status-dot active" style={{ width: '8px', height: '8px' }}></span>
+              All Systems Operational
             </div>
           </div>
-          <button className="btn btn-secondary" onClick={logout} style={{ width: '100%', marginTop: '1rem' }}>
-            <LogOut size={16} />
-            Sign Out
-          </button>
+
+          <div style={{ marginTop: '2rem', display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem' }}>
+            <div style={{ position: 'relative' }}>
+              <div style={{ width: '38px', height: '38px', background: 'linear-gradient(135deg, #2563eb, #3b82f6)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: '1rem', color: 'white', border: '1px solid rgba(255,255,255,0.1)' }}>
+                {user?.firstName?.[0] || 'U'}
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.firstName} {user?.lastName}</div>
+              <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>{user?.role?.replace('_', ' ')}</div>
+            </div>
+          </div>
         </div>
       </aside>
 
       <main className="main-content">
         <header className="topbar">
-          <h2 className="topbar-title">
-            {currentView === 'dashboard' && 'Dashboard'}
-            {currentView === 'rfps' && 'RFP Portfolio'}
-            {currentView === 'rfp-detail' && 'RFP Details'}
-            {currentView === 'create-rfp' && 'Create New RFP'}
-            {currentView === 'tasks' && 'Tasks'}
-            {currentView === 'analytics' && 'Analytics'}
-          </h2>
+          <div style={{ fontWeight: 600, color: '#64748b' }}>
+            {currentView === 'dashboard' ? 'Dashboard' :
+              currentView === 'rfps' ? 'RFPs' :
+                currentView === 'tasks' ? 'Tasks' :
+                  currentView === 'settings' ? 'Settings' :
+                    currentView === 'rfp-detail' ? 'RFPs' : 'Dashboard'}
+          </div>
 
-          <div className="topbar-actions" style={{ position: 'relative' }}>
-            <div className="notification-badge" onClick={() => setShowNotifications(!showNotifications)}>
-              <Bell size={24} />
-              {unreadCount > 0 && <span className="badge-count">{unreadCount}</span>}
+          <div className="topbar-right">
+            <div style={{ position: 'relative', cursor: 'pointer', padding: '0.5rem', borderRadius: '8px' }}>
+              <Bell size={22} color="#64748b" />
+              {unreadCount > 0 && (
+                <span style={{ position: 'absolute', top: 2, right: 2, background: '#ef4444', color: 'white', width: '18px', height: '18px', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, border: '2px solid white' }}>
+                  {unreadCount}
+                </span>
+              )}
             </div>
 
-            {showNotifications && (
-              <div style={{
-                position: 'absolute', top: '100%', right: '0', marginTop: '1.5rem',
-                width: '340px', background: 'white', borderRadius: '0.5rem',
-                boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)',
-                zIndex: 1000, border: '1px solid #e2e8f0', maxHeight: '400px', display: 'flex', flexDirection: 'column'
-              }}>
-                <div style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Notifications</span>
-                  {unreadCount > 0 && <span style={{ color: '#1e3a8a', fontSize: '0.85rem' }}>{unreadCount} new</span>}
+            <div style={{ height: '24px', width: '1px', background: '#e2e8f0', margin: '0 0.5rem' }}></div>
+
+            <div style={{ position: 'relative' }}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: '1rem', cursor: 'pointer', padding: '0.4rem 0.75rem', borderRadius: '10px', border: 'var(--border-fine)', background: '#f8fafc' }}
+                onClick={() => setShowLogout(!showLogout)}
+              >
+                <div style={{ textAlign: 'right', display: 'block' }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>{user?.firstName} {user?.lastName}</div>
+                  <div style={{ fontSize: '0.7rem', color: '#2563eb', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{user?.role?.replace('_', ' ')}</div>
                 </div>
-                <div style={{ overflowY: 'auto' }}>
-                  {notifications.length === 0 ? (
-                    <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>No notifications</div>
-                  ) : (
-                    notifications.map(n => (
-                      <div key={n.id} onClick={() => !n.isRead && handleMarkAsRead(n.id)} style={{
-                        padding: '1rem', borderBottom: '1px solid #e2e8f0',
-                        background: n.isRead ? 'white' : '#f0f9ff', cursor: n.isRead ? 'default' : 'pointer',
-                        transition: 'background 0.2s'
-                      }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.25rem', color: '#0f172a' }}>{n.title}</div>
-                        <div style={{ fontSize: '0.85rem', color: '#475569', lineHeight: 1.4 }}>{n.message}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.5rem' }}>
-                          {new Date(n.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                    ))
-                  )}
+                <div style={{ width: '36px', height: '36px', background: 'linear-gradient(135deg, #2563eb, #3b82f6)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: 'white', fontSize: '1rem', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  {user?.firstName?.[0] || 'U'}
                 </div>
+                <ChevronDown size={16} color="#64748b" />
               </div>
-            )}
+
+              {showLogout && (
+                <div style={{
+                  position: 'absolute',
+                  top: '120%',
+                  right: 0,
+                  background: 'white',
+                  borderRadius: '8px',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+                  padding: '4px',
+                  minWidth: '160px',
+                  border: '1px solid #f1f5f9',
+                  zIndex: 100
+                }}>
+                  <button
+                    onClick={logout}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#ef4444',
+                      fontWeight: 600,
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      borderRadius: '6px'
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = '#fff1f2'}
+                    onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                  >
+                    <LogOut size={16} />
+                    Log out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
         <div className="content-area">
-          {renderContent()}
+          <div className={`view-container ${currentView === 'dashboard' ? '' : 'hidden'}`}>
+            <Dashboard data={dashboardData} loading={dataLoading} onRefresh={refreshDashboard} onViewRFP={handleViewRFP} onCreateRFP={handleCreateRFP} />
+          </div>
+          <div className={`view-container ${currentView === 'rfps' ? '' : 'hidden'}`}>
+            <RFPList initialRfps={rfpsData} loading={dataLoading} onViewRFP={handleViewRFP} onCreateRFP={handleCreateRFP} onRefresh={refreshRFPs} />
+          </div>
+          <div className={`view-container ${currentView === 'tasks' ? '' : 'hidden'}`}>
+            <TasksView initialTasks={tasksData} loading={dataLoading} onRefresh={refreshTasks} />
+          </div>
+
+          {currentView === 'rfp-detail' && (
+            <RFPDetail rfpId={selectedRFPId} onBack={handleBackToList} onUpdate={fetchInitialData} />
+          )}
+          {currentView === 'create-rfp' && (
+            <CreateRFPForm onCancel={handleBackToList} onSuccess={() => {
+              fetchInitialData();
+              handleRFPCreated();
+            }} />
+          )}
+          {currentView === 'admin-panel' && (
+            <AdminPanel />
+          )}
+          {currentView === 'settings' && (
+            <SettingsView />
+          )}
         </div>
       </main>
     </div>
@@ -1357,7 +2523,7 @@ function MainApp() {
     );
   }
 
-  return user ? <AppLayout /> : <LoginPage />;
+  return user ? <AppLayout /> : <Login />;
 }
 
 export default App;

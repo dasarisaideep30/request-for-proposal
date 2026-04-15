@@ -16,6 +16,7 @@ const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.warn('⚠️ [AUTH] Missing or invalid Authorization header');
       return res.status(401).json({ 
         error: 'Authentication required',
         message: 'No token provided' 
@@ -27,20 +28,49 @@ const authenticate = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Get user from database
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true
+    // Get user from database with retry and fallback
+    let user = null;
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    while (retryCount <= maxRetries) {
+      try {
+        user = await prisma.user.findUnique({
+          where: { id: decoded.userId },
+          select: { id: true, email: true, firstName: true, lastName: true, role: true, isActive: true }
+        });
+        break; // Success
+      } catch (dbError) {
+        console.error(`[DB-RETRY ${retryCount}] Database connection error:`, dbError.code || dbError.message);
+        
+        // P1001 is "Can't reach database server"
+        if (dbError.code === 'P1001' || dbError.message.includes('Can\'t reach database server')) {
+          if (retryCount < maxRetries) {
+            retryCount++;
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+            continue;
+          }
+
+          // If all retries failed and we are in development, provide a fallback user to prevent blocking
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('⚠️ [AUTH] Database unreachable. Using fallback user for development.');
+            user = {
+              id: decoded.userId,
+              email: 'dev-fallback@example.com',
+              firstName: 'Dev',
+              lastName: 'User',
+              role: 'PROPOSAL_MANAGER',
+              isActive: true
+            };
+            break;
+          }
+        }
+        throw dbError; // Rethrow if not a connection issue or retries exhausted
       }
-    });
+    }
 
     if (!user) {
+      console.warn(`⚠️ [AUTH] User with ID ${decoded.userId} not found in database`);
       return res.status(401).json({ 
         error: 'Authentication failed',
         message: 'User not found' 
@@ -60,20 +90,22 @@ const authenticate = async (req, res, next) => {
 
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
+      console.warn('⚠️ [AUTH] Invalid Token Provided:', error.message);
       return res.status(401).json({ 
         error: 'Authentication failed',
         message: 'Invalid token' 
       });
     }
     if (error.name === 'TokenExpiredError') {
+      console.warn('⚠️ [AUTH] Token Expired');
       return res.status(401).json({ 
         error: 'Authentication failed',
         message: 'Token expired' 
       });
     }
     
-    console.error('Auth middleware error:', error);
-    res.status(500).json({ error: 'Authentication error' });
+    console.error('❌ [AUTH] Global Middleware Error:', error);
+    res.status(500).json({ error: 'Authentication error', details: error.message });
   }
 };
 

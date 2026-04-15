@@ -5,7 +5,7 @@ const { authenticate, authorize } = require('../middleware/auth.middleware');
 
 router.use(authenticate);
 
-router.post('/', authorize('PROPOSAL_MANAGER'), approvalController.createApproval);
-router.patch('/:id', authorize('BID_REVIEWER', 'LEADERSHIP'), approvalController.decideApproval);
+router.post('/', authorize('PROPOSAL_MANAGER', 'ADMIN', 'CO_ADMIN'), approvalController.createApproval);
+router.patch('/:id', authorize('BID_REVIEWER', 'LEADERSHIP', 'ADMIN', 'CO_ADMIN'), approvalController.decideApproval);
 
 module.exports = router;
