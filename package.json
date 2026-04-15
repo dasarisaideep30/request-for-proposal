@@ -9,6 +9,6 @@
   "scripts": {
     "build:backend": "cd backend && npm install && npx prisma generate",
     "build:frontend": "cd frontend && npm install && npm run build",
-    "build": "npm run build:backend && npm run build:frontend"
+    "build": "cd backend && npx prisma generate && cd ../frontend && npm install && npm run build"
   }
 }
