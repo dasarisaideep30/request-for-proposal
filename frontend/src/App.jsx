@@ -765,16 +765,19 @@ const RFPDetail = ({ rfpId, onBack }) => {
   const { token, user } = useAuth();
   const [rfp, setRfp] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [coAdmins, setCoAdmins] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [newTask, setNewTask] = useState({ title: '', description: '', dueDate: '', ownerId: '' });
 
   useEffect(() => {
     fetchRFPDetail();
-    if (user?.role === 'ADMIN') fetchCoAdmins();
+    fetchUsers();
   }, [rfpId]);
 
-  const fetchCoAdmins = async () => {
+  const fetchUsers = async () => {
     try {
       const data = await apiCall('/admin/users', {}, token);
+      setUsers(data.users || []);
       setCoAdmins(data.users.filter(u => u.role === 'CO_ADMIN'));
     } catch (e) {}
   };
@@ -977,9 +980,63 @@ const RFPDetail = ({ rfpId, onBack }) => {
 
           {/* Tasks */}
           <div className="card" style={{ padding: 0, overflow: 'hidden', marginTop: '1.5rem' }}>
-            <div style={{ padding: '1.75rem', borderBottom: '1px solid #f1f5f9' }}>
+            <div style={{ padding: '1.75rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h3 style={{ fontWeight: 800 }}>Tasks</h3>
+              {(user?.role === 'ADMIN' || user?.role === 'CO_ADMIN' || user?.id === rfp.proposalManagerId) && (
+                <button 
+                  className="btn btn-primary" 
+                  style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                  onClick={() => setShowTaskForm(!showTaskForm)}
+                >
+                  <Plus size={16} /> New Task
+                </button>
+              )}
             </div>
+
+            {showTaskForm && (
+              <div style={{ padding: '1.5rem', background: '#f8fafc', borderBottom: '1px solid #f1f5f9', animation: 'slideDown 0.3s' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+                  <input 
+                    type="text" 
+                    placeholder="Task Title" 
+                    className="form-control"
+                    value={newTask.title}
+                    onChange={(e) => setNewTask({...newTask, title: e.target.value})}
+                  />
+                  <input 
+                    type="date" 
+                    className="form-control"
+                    value={newTask.dueDate}
+                    onChange={(e) => setNewTask({...newTask, dueDate: e.target.value})}
+                  />
+                  <select 
+                    className="form-select"
+                    value={newTask.ownerId}
+                    onChange={(e) => setNewTask({...newTask, ownerId: e.target.value})}
+                  >
+                    <option value="">Select Assignee...</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.role.replace('_', ' ')})</option>
+                    ))}
+                  </select>
+                  <button 
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      if (!newTask.title || !newTask.dueDate || !newTask.ownerId) return alert('Fill required fields');
+                      await apiCall('/tasks', { 
+                        method: 'POST', 
+                        body: JSON.stringify({ ...newTask, rfpId }) 
+                      }, token);
+                      setNewTask({ title: '', description: '', dueDate: '', ownerId: '' });
+                      setShowTaskForm(false);
+                      fetchRFPDetail();
+                    }}
+                  >
+                    Confirm Assignment
+                  </button>
+                </div>
+              </div>
+            )}
             {rfp.tasks.length === 0 ? (
               <div style={{ padding: '4rem', textAlign: 'center', color: '#64748b' }}>No tasks yet</div>
             ) : (
@@ -1005,12 +1062,32 @@ const RFPDetail = ({ rfpId, onBack }) => {
                           )}
                         </td>
                         <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div style={{ width: '24px', height: '24px', background: '#f1f5f9', color: '#475569', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
-                              {task.owner.firstName?.[0]}
+                          {(user?.role === 'ADMIN' || user?.role === 'CO_ADMIN' || user?.id === rfp.proposalManagerId) ? (
+                            <select 
+                              className="form-select"
+                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem', width: 'auto', border: 'none', background: 'transparent', fontWeight: 600 }}
+                              value={task.ownerId}
+                              onChange={async (e) => {
+                                const newOwnerId = e.target.value;
+                                await apiCall(`/tasks/${task.id}`, { 
+                                  method: 'PATCH', 
+                                  body: JSON.stringify({ ownerId: newOwnerId }) 
+                                }, token);
+                                fetchRFPDetail();
+                              }}
+                            >
+                              {users.map(u => (
+                                <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div style={{ width: '24px', height: '24px', background: '#f1f5f9', color: '#475569', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 800 }}>
+                                {task.owner.firstName?.[0]}
+                              </div>
+                              <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{task.owner.firstName}</span>
                             </div>
-                            <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{task.owner.firstName}</span>
-                          </div>
+                          )}
                         </td>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: task.isOverdue ? '#ef4444' : '#64748b', fontWeight: task.isOverdue ? 700 : 400 }}>
