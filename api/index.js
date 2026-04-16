@@ -1,25 +1,38 @@
-console.log('[STEP 1] Entry point loaded');
+const fs = require('fs');
+const path = require('path');
 
-// We use dynamic requires to trace the exact crash point
 module.exports = async (req, res) => {
   try {
-    console.log('[STEP 2] Request received:', req.url);
+    const root = process.cwd();
+    console.log('CWD:', root);
     
-    console.log('[STEP 3] Loading Express...');
-    const express = require('express');
+    // Scan directories to find where backend is
+    const files = fs.readdirSync(root);
+    console.log('Files in CWD:', files);
     
-    console.log('[STEP 4] Loading Backend App...');
-    // If it crashes here, we know it's a module issue
-    const app = require('../backend/app');
-    
-    console.log('[STEP 5] Executing App...');
-    return app(req, res);
+    let backendPath = '';
+    if (files.includes('backend')) {
+      backendPath = path.join(root, 'backend/app');
+    } else if (files.includes('api') && fs.readdirSync(path.join(root, 'api')).includes('backend')) {
+       backendPath = path.join(root, 'api/backend/app');
+    } else {
+       // Deep search
+       console.log('Backend not found in expected locations.');
+    }
+
+    if (backendPath) {
+      console.log('Loading backend from:', backendPath);
+      const app = require(backendPath);
+      return app(req, res);
+    }
+
+    throw new Error('Could not find backend/app.js in the deployment bundle.');
   } catch (err) {
-    console.error('[CRITICAL FAILURE]:', err);
     res.status(500).json({
-      error: 'API_CRASH',
-      message: err.message,
-      stack: err.stack
+      error: 'FILE_NOT_FOUND',
+      cwd: process.cwd(),
+      files: fs.readdirSync(process.cwd()),
+      message: err.message
     });
   }
 };
