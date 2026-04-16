@@ -16,5 +16,8 @@
     "@prisma/client": "^6.19.3",
     "concurrently": "^9.2.1",
     "prisma": "^6.19.3"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
