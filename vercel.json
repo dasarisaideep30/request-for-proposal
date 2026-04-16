@@ -1,21 +1,20 @@
 {
   "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "outputDirectory": "frontend/build_output",
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/backend/api/index.js"
-    },
-    {
-      "source": "/assets/(.*)",
-      "destination": "/frontend/dist/assets/$1"
+      "destination": "/api/index.js"
     },
     {
       "source": "/(.*)",
-      "destination": "/frontend/dist/index.html"
+      "destination": "/index.html"
     }
   ],
   "functions": {
-    "backend/api/index.js": {
+    "api/index.js": {
       "maxDuration": 15
     }
   }

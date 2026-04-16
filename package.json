@@ -7,8 +7,12 @@
     "backend"
   ],
   "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=frontend\" \"npm run dev --workspace=backend\"",
     "build:backend": "cd backend && npm install && npx prisma generate",
     "build:frontend": "cd frontend && npm install && npm run build",
     "build": "cd backend && npx prisma generate && cd ../frontend && npm install && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }
