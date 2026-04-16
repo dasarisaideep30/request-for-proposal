@@ -10,7 +10,7 @@
     "dev": "concurrently \"npm run dev --workspace=frontend\" \"npm run dev --workspace=backend\"",
     "build:backend": "cd backend && npm install && npx prisma generate",
     "build:frontend": "cd frontend && npm install && npm run build",
-    "build": "cp -r backend api/backend_src && npx prisma generate --schema=api/backend_src/prisma/schema.prisma && npm run build --workspace=frontend"
+    "build": "npx prisma generate --schema=api/server/prisma/schema.prisma && npm run build --workspace=frontend"
   },
   "dependencies": {
     "@google/genai": "^1.44.0",
