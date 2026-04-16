@@ -1,35 +1,36 @@
-// FORCE EXPLICIT BUNDLING OF ALL BACKEND DEPENDENCIES
+const fs = require('fs');
+const path = require('path');
+
+// FORCE REQUIRED BUNDLING
 require('dotenv');
 require('express');
-require('cors');
-require('jsonwebtoken');
-require('bcryptjs');
-require('express-rate-limit');
-require('compression');
-require('express-validator');
-require('multer');
-require('pdf-parse');
-require('mammoth');
-require('csv-string');
-require('@google/genai');
-require('groq-sdk');
-require('openai');
-require('serverless-http');
 const { PrismaClient } = require('@prisma/client');
 
-console.log('[STEP 1] Bundled dependencies verified');
+/**
+ * Unified Vercel API Hub
+ * Dynamically resolves the backend from either the workspace or the build-time copy.
+ */
+let app;
 
-// Now load the actual app
-const app = require('../backend/app');
+// Prefer local build-time copy (more reliable on Vercel)
+const localBackend = path.join(__dirname, 'backend_src/app');
+const workspaceBackend = path.join(__dirname, '../backend/app');
+
+try {
+  if (fs.existsSync(localBackend + '.js')) {
+    console.log('[API] Loading from local backend_src...');
+    app = require(localBackend);
+  } else {
+    console.log('[API] Loading from workspace backend...');
+    app = require(workspaceBackend);
+  }
+} catch (err) {
+  console.error('[API CRITICAL LOAD FAILURE]:', err);
+}
 
 module.exports = (req, res) => {
-  try {
-    return app(req, res);
-  } catch (err) {
-    console.error('[API CRITICAL]:', err);
-    res.status(500).json({
-      error: 'INTERAL_SERVER_ERROR',
-      message: err.message
-    });
+  if (!app) {
+     return res.status(500).json({ error: 'BACKEND_NOT_LOADED', message: 'Could not find app logic in bundle' });
   }
+  return app(req, res);
 };
