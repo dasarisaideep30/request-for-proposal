@@ -1,15 +1,12 @@
-const app = require('../backend/app');
-
-// Wrap in a serverless-friendly way if needed, but Express is fine
 module.exports = (req, res) => {
-  try {
-    return app(req, res);
-  } catch (err) {
-    console.error('[API ERROR]:', err);
-    res.status(500).json({
-      error: 'Function Invocation Error',
-      message: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
-  }
+  res.status(200).json({
+    status: 'ok',
+    diagnostic: 'simple_function_works',
+    node_version: process.version,
+    env_vars_present: {
+      DATABASE_URL: !!process.env.DATABASE_URL,
+      JWT_SECRET: !!process.env.JWT_SECRET,
+      NODE_ENV: process.env.NODE_ENV
+    }
+  });
 };
