@@ -1,19 +1,21 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 
 console.log('[DEBUG] Server starting up...');
+console.log('[DEBUG] DATABASE_URL present:', !!process.env.DATABASE_URL);
+console.log('[DEBUG] NODE_ENV:', process.env.NODE_ENV);
+
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const compression = require('compression');
 const path = require('path');
 
-// Polyfill for pdf-parse in serverless environments
-if (typeof global.DOMMatrix === 'undefined') {
-    global.DOMMatrix = class DOMMatrix {};
+if (!process.env.DATABASE_URL) {
+  console.error('[CRITICAL]: DATABASE_URL is missing! Prisma will fail.');
 }
 
 if (!process.env.JWT_SECRET) {
-  console.error('[CRITICAL]: JWT_SECRET is not defined in environment variables!');
+  console.error('[CRITICAL]: JWT_SECRET is missing!');
 }
 
 // Route imports
