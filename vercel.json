@@ -15,6 +15,7 @@
   ],
   "functions": {
     "api/index.js": {
+      "includeFiles": "backend/**",
       "maxDuration": 15
     }
   }
