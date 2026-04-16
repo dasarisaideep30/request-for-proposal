@@ -1,27 +1,32 @@
 const { PrismaClient } = require('@prisma/client');
 
+/**
+ * Lazy-loaded Prisma Client to ensure it doesn't crash during 
+ * the initial require() phase in serverless environments.
+ */
 let prisma;
 
-if (process.env.NODE_ENV === 'production') {
-    console.log('[DEBUG] Initializing PrismaClient in production...');
-    try {
-        prisma = new PrismaClient();
-        console.log('[DEBUG] PrismaClient initialized successfully.');
-    } catch (err) {
-        console.error('[CRITICAL] PrismaClient initialization failed:', err);
-        throw err;
-    }
-} else {
-    if (!global.prisma) {
-        console.log('[DEBUG] Initializing PrismaClient in development (global sync)...');
+const getPrismaClient = () => {
+    if (!prisma) {
+        console.log('[DEBUG] Initializing PrismaClient (Lazy)...');
         try {
-            global.prisma = new PrismaClient();
+            prisma = new PrismaClient({
+                log: ['error', 'warn'],
+                errorFormat: 'pretty',
+            });
+            console.log('[DEBUG] PrismaClient Instance Created.');
         } catch (err) {
-            console.error('[CRITICAL] Global PrismaClient initialization failed:', err);
+            console.error('[CRITICAL] Failed to create PrismaClient:', err);
+            // In serverless, we sometimes need to return a mock or throw
             throw err;
         }
     }
-    prisma = global.prisma;
-}
+    return prisma;
+};
 
-module.exports = prisma;
+// For backward compatibility with existing requires
+module.exports = new Proxy({}, {
+    get: (target, prop) => {
+        return getPrismaClient()[prop];
+    }
+});
