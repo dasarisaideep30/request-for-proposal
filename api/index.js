@@ -1,38 +1,18 @@
-const fs = require('fs');
-const path = require('path');
+const app = require('../backend/app');
 
-module.exports = async (req, res) => {
+/**
+ * Enterprise RFP Command Center - Unified API Entry Point
+ * Correctly Resolves Backend relative to Vercel's root /api functions.
+ */
+module.exports = (req, res) => {
   try {
-    const root = process.cwd();
-    console.log('CWD:', root);
-    
-    // Scan directories to find where backend is
-    const files = fs.readdirSync(root);
-    console.log('Files in CWD:', files);
-    
-    let backendPath = '';
-    if (files.includes('backend')) {
-      backendPath = path.join(root, 'backend/app');
-    } else if (files.includes('api') && fs.readdirSync(path.join(root, 'api')).includes('backend')) {
-       backendPath = path.join(root, 'api/backend/app');
-    } else {
-       // Deep search
-       console.log('Backend not found in expected locations.');
-    }
-
-    if (backendPath) {
-      console.log('Loading backend from:', backendPath);
-      const app = require(backendPath);
-      return app(req, res);
-    }
-
-    throw new Error('Could not find backend/app.js in the deployment bundle.');
+    return app(req, res);
   } catch (err) {
+    console.error('[API CRITICAL]:', err);
     res.status(500).json({
-      error: 'FILE_NOT_FOUND',
-      cwd: process.cwd(),
-      files: fs.readdirSync(process.cwd()),
-      message: err.message
+      error: 'INTERAL_SERVER_ERROR',
+      message: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
   }
 };
