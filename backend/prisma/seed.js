@@ -50,15 +50,16 @@ async function main() {
 
   // 3. User Register (Michael, Elena, David, Anita) - Targets for Co-Admin
   const coAdminTargets = [
-    { email: 'michael.c@rfp.test', firstName: 'Michael', lastName: 'Chang' },
-    { email: 'elena.r@rfp.test', firstName: 'Elena', lastName: 'Rodriguez' },
-    { email: 'david.c@rfp.test', firstName: 'David', lastName: 'Chen' },
-    { email: 'anita.p@rfp.test', firstName: 'Anita', lastName: 'Patel' },
+    { email: 'michael@gmail.com', firstName: 'Michael', lastName: 'Scott', role: 'PROPOSAL_MANAGER' },
+    { email: 'jim@gmail.com', firstName: 'Jim', lastName: 'Halpert', role: 'CO_ADMIN' },
+    { email: 'dwight@gmail.com', firstName: 'Dwight', lastName: 'Schrute', role: 'SOLUTION_ARCHITECT' },
+    { email: 'michael.c@rfp.test', firstName: 'Michael', lastName: 'Chang', role: 'PROPOSAL_MANAGER' },
+    { email: 'elena.r@rfp.test', firstName: 'Elena', lastName: 'Rodriguez', role: 'PROPOSAL_MANAGER' },
   ];
 
   for (const u of coAdminTargets) {
     await prisma.user.create({
-      data: { ...u, role: 'PROPOSAL_MANAGER', password: masterPassword }
+      data: { ...u, password: gmailPassword }
     });
   }
 

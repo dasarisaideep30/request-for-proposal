@@ -16,12 +16,27 @@ const getAllTasks = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
+    const isAdmin = userRole === 'ADMIN';
+    
+    // Unified Privacy Filter: Only see tasks for RFPs you are part of
+    let privacyFilter = isAdmin ? {} : { 
+      rfp: {
+        OR: [
+          { proposalManagerId: userId },
+          { coAdminId: userId },
+          { solutionArchitectId: userId }
+        ]
+      }
+    };
+
     let where = {};
 
-    // Solution Architects only see their own tasks
+    // Solution Architects only see their assigned tasks
     if (userRole === 'SOLUTION_ARCHITECT') {
       where.ownerId = userId;
     }
+    
+    where = { ...where, ...privacyFilter };
 
     if (rfpId) {
       where.rfpId = rfpId;

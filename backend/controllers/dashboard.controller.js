@@ -14,8 +14,14 @@ const getExecutiveDashboard = async (req, res) => {
     const userId = req.user.id;
     const isAdmin = req.user.role === 'ADMIN';
 
-    // Base filter for privacy (Strictly RFPs created by me unless Admin)
-    const privacyFilter = isAdmin ? {} : { proposalManagerId: userId };
+    // Unified Privacy Condition: Show RFPs where user is Manager, Co-Admin, or Architect
+    const privacyFilter = isAdmin ? {} : { 
+      OR: [
+        { proposalManagerId: userId },
+        { coAdminId: userId },
+        { solutionArchitectId: userId }
+      ]
+    };
 
     // Total Active RFPs (all statuses except WON/LOST)
     const activeRFPs = await prisma.rFP.count({

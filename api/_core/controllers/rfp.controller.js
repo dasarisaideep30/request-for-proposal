@@ -16,8 +16,13 @@ const getAllRFPs = async (req, res) => {
     const { status, riskLevel, search } = req.query;
     const userId = req.user.id;
     const isAdmin = req.user.role === 'ADMIN';
-    const isCoAdmin = req.user.role === 'CO_ADMIN';
-    const privacyConditions = (isAdmin || isCoAdmin) ? {} : { proposalManagerId: userId };
+    const privacyConditions = isAdmin ? {} : {
+      OR: [
+        { proposalManagerId: userId },
+        { coAdminId: userId },
+        { solutionArchitectId: userId }
+      ]
+    };
     
     // Build filter array for AND grouping
     const filters = [privacyConditions];
@@ -48,14 +53,26 @@ const getAllRFPs = async (req, res) => {
       },
       select: {
         id: true,
+        rfpNumber: true,
         projectTitle: true,
         clientName: true,
+        industry: true,
         estimatedDealValue: true,
         submissionDeadline: true,
         status: true,
         riskLevel: true,
+        completionPercentage: true,
+        proposalManagerId: true,
+        coAdminId: true,
+        solutionArchitectId: true,
         proposalManager: {
-          select: { firstName: true }
+          select: { id: true, firstName: true, lastName: true }
+        },
+        coAdmin: {
+          select: { id: true, firstName: true, lastName: true }
+        },
+        solutionArchitect: {
+          select: { id: true, firstName: true, lastName: true }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -124,19 +141,18 @@ const getRFPById = async (req, res) => {
       });
     }
 
-    // Check access permissions
-    if (req.user.role === 'SOLUTION_ARCHITECT' && rfp.solutionArchitectId !== req.user.id) {
+    // Unified access check: Allow if ADMIN or if user is part of the RFP team
+    const userId = req.user.id;
+    const isAdmin = req.user.role === 'ADMIN';
+    const isParticipant = rfp.proposalManagerId === userId || 
+                          rfp.solutionArchitectId === userId || 
+                          rfp.coAdminId === userId;
+
+    if (!isAdmin && !isParticipant) {
       return res.status(403).json({
         error: 'Access denied',
         message: 'You do not have access to this RFP'
       });
-    }
-
-    if (req.user.role === 'PROPOSAL_MANAGER' && rfp.proposalManagerId !== req.user.id) {
-        return res.status(403).json({
-          error: 'Access denied',
-          message: 'You do not have access to this RFP'
-        });
     }
 
     res.status(200).json({ rfp });

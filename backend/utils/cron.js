@@ -4,7 +4,7 @@
  */
 
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../prismaClient');
 const { checkTaskOverdue, calculateRiskLevel, calculateCompletionPercentage } = require('./riskEngine');
 
 async function runOverdueCheck() {

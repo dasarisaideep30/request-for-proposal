@@ -3,7 +3,7 @@
  * Enterprise-Grade React Application with Full Feature Set
  */
 
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext, useRef } from 'react';
 import {
   BarChart3, FileText, CheckSquare, Bell, LogOut, Home, Plus,
   AlertTriangle,
@@ -17,7 +17,12 @@ import {
   ChevronDown,
   Zap,
   FileUp,
-  Download
+  Download,
+  Users,
+  Shield,
+  UserPlus,
+  RefreshCw,
+  XCircle
 } from 'lucide-react';
 
 // API Configuration
@@ -175,29 +180,27 @@ const apiCall = async (endpoint, options = {}, token, retryCount = 0) => {
       headers
     });
 
-    if (response.status === 429 && retryCount < 3) {
-      const waitTime = Math.pow(2, retryCount) * 1000;
-      console.warn(`Rate limited. Retrying in ${waitTime}ms...`);
+    if (response.status === 429 && retryCount < 2) {
+      const waitTime = (retryCount + 1) * 2000;
+      console.warn(`[GOVERNANCE] Rate limit detected. Re-throttling in ${waitTime}ms...`);
       await new Promise(res => setTimeout(res, waitTime));
       return apiCall(endpoint, options, token, retryCount + 1);
     }
 
     if (!response.ok) {
       const errorText = await response.text();
-      let errorMessage = 'API request failed';
+      let errorMessage = 'System offline or busy';
       try {
         const errorJson = JSON.parse(errorText);
         errorMessage = errorJson.message || errorMessage;
-      } catch (e) {
-        errorMessage = errorText || errorMessage;
-      }
+      } catch (e) {}
       throw new Error(errorMessage);
     }
 
     return response.json();
   } catch (error) {
-    if (retryCount < 3 && error.name !== 'TypeError') {
-      await new Promise(res => setTimeout(res, 1000));
+    if (retryCount < 2 && !error.message?.includes('Rate limit')) {
+      await new Promise(res => setTimeout(res, 2000));
       return apiCall(endpoint, options, token, retryCount + 1);
     }
     throw error;
@@ -264,8 +267,15 @@ const AuthProvider = ({ children }) => {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
+      const errorText = await response.text();
+      let msg = 'Authentication failed';
+      try {
+        const errorJson = JSON.parse(errorText);
+        msg = errorJson.message || msg;
+      } catch (e) {
+        msg = errorText || msg;
+      }
+      throw new Error(msg);
     }
 
     const data = await response.json();
@@ -436,7 +446,7 @@ const Login = () => {
 // RFP LIST COMPONENT
 // ============================================
 
-const RFPList = ({ initialRfps, loading: propLoading, onViewRFP, onCreateRFP, onRefresh }) => {
+const RFPList = ({ initialRfps, users, loading: propLoading, onViewRFP, onCreateRFP, onRefresh }) => {
   const { token, user } = useAuth();
   const [rfps, setRfps] = useState(initialRfps || []);
   const [loading, setLoading] = useState(!initialRfps);
@@ -674,6 +684,7 @@ const RFPList = ({ initialRfps, loading: propLoading, onViewRFP, onCreateRFP, on
                 <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Status</th>
                 <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Risk</th>
                 <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Owner</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Access Governance</th>
               </tr>
             </thead>
             <tbody>
@@ -738,11 +749,122 @@ const RFPList = ({ initialRfps, loading: propLoading, onViewRFP, onCreateRFP, on
                         </span>
                       </td>
                       <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ width: '28px', height: '28px', background: '#eff6ff', color: '#2563eb', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, border: '1px solid #dbeafe' }}>
-                            {rfp.proposalManager?.firstName?.[0] || 'U'}
+                        {user?.role === 'ADMIN' ? (
+                          <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+                            <select 
+                              className="form-select"
+                              style={{ 
+                                padding: '0.2rem 1.8rem 0.2rem 0.5rem', fontSize: '0.85rem', width: 'auto', border: 'none', 
+                                background: 'transparent', fontWeight: 700, color: '#2563eb', cursor: 'pointer',
+                                appearance: 'none', WebkitAppearance: 'none'
+                              }}
+                              value={rfp.proposalManagerId || ''}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={async (e) => {
+                                e.stopPropagation();
+                                const newManagerId = e.target.value;
+                                await apiCall(`/rfps/${rfp.id}`, { 
+                                  method: 'PATCH', 
+                                  body: JSON.stringify({ proposalManagerId: newManagerId }) 
+                                }, token);
+                                handleRefreshAll();
+                              }}
+                            >
+                              <option value="" disabled>Select Owner</option>
+                              {users.map(u => (
+                                <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
+                              ))}
+                            </select>
+                            <ChevronDown size={14} color="#2563eb" style={{ position: 'absolute', right: 4, pointerEvents: 'none' }} />
                           </div>
-                          <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{rfp.proposalManager?.firstName || 'Unknown'}</span>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ width: '28px', height: '28px', background: '#eff6ff', color: '#2563eb', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, border: '1px solid #dbeafe' }}>
+                              {rfp.proposalManager?.firstName?.[0] || 'U'}
+                            </div>
+                            <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                              {rfp.proposalManager?.firstName ? `${rfp.proposalManager.firstName} ${rfp.proposalManager.lastName || ''}` : 'Unassigned'}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ minWidth: '220px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {user?.role === 'ADMIN' ? (
+                            <div style={{ background: '#f8fafc', padding: '0.5rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Oversight:</span>
+                                  <select 
+                                    className="form-select"
+                                    style={{ padding: '0.1rem 0.4rem', fontSize: '0.75rem', border: 'none', background: 'transparent', color: rfp.coAdminId ? '#2563eb' : '#94a3b8', fontWeight: 700 }}
+                                    value={rfp.coAdminId || ''}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={async (e) => {
+                                      e.stopPropagation();
+                                      await apiCall(`/rfps/${rfp.id}`, { method: 'PATCH', body: JSON.stringify({ coAdminId: e.target.value || null }) }, token);
+                                      onRefresh();
+                                    }}
+                                  >
+                                    <option value="">None (Remove Co-Admin)</option>
+                                    {users.filter(u => u.role === 'CO_ADMIN' || u.role === 'ADMIN').map(u => (
+                                      <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
+                                    ))}
+                                  </select>
+                                  {rfp.coAdminId && (
+                                    <button 
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        await apiCall(`/rfps/${rfp.id}`, { method: 'PATCH', body: JSON.stringify({ coAdminId: null }) }, token);
+                                        handleRefreshAll();
+                                      }}
+                                      style={{ border: 'none', background: 'transparent', padding: 0, color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                                      title="Undo Assignment"
+                                    >
+                                      <XCircle size={14} />
+                                    </button>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase' }}>Support:</span>
+                                  <select 
+                                    className="form-select"
+                                    style={{ padding: '0.1rem 0.4rem', fontSize: '0.75rem', border: 'none', background: 'transparent', color: rfp.solutionArchitectId ? '#2563eb' : '#94a3b8', fontWeight: 700 }}
+                                    value={rfp.solutionArchitectId || ''}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={async (e) => {
+                                      e.stopPropagation();
+                                      await apiCall(`/rfps/${rfp.id}`, { method: 'PATCH', body: JSON.stringify({ solutionArchitectId: e.target.value || null }) }, token);
+                                      onRefresh();
+                                    }}
+                                  >
+                                    <option value="">None (Remove Architect)</option>
+                                    {users.filter(u => u.role === 'SOLUTION_ARCHITECT' || u.role === 'PROPOSAL_MANAGER').map(u => (
+                                      <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
+                                    ))}
+                                  </select>
+                                  {rfp.solutionArchitectId && (
+                                    <button 
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        await apiCall(`/rfps/${rfp.id}`, { method: 'PATCH', body: JSON.stringify({ solutionArchitectId: null }) }, token);
+                                        handleRefreshAll();
+                                      }}
+                                      style={{ border: 'none', background: 'transparent', padding: 0, color: '#94a3b8', cursor: 'pointer', display: 'flex' }}
+                                      title="Undo Assignment"
+                                    >
+                                      <XCircle size={14} />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                              <div>Oversight: <span style={{ fontWeight: 700, color: '#0f172a' }}>{rfp.coAdmin?.firstName || 'Standard'}</span></div>
+                              <div>Support: <span style={{ fontWeight: 700, color: '#0f172a' }}>{rfp.solutionArchitect?.firstName || 'Assigned'}</span></div>
+                            </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1318,124 +1440,6 @@ const RFPDetail = ({ rfpId, onBack }) => {
 // CREATE RFP COMPONENT
 // ============================================
 
-// ============================================
-// ADMIN PANEL COMPONENT
-// ============================================
-
-const AdminPanel = () => {
-  const { token } = useAuth();
-  const [stats, setStats] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchAdminData();
-  }, []);
-
-  const fetchAdminData = async () => {
-    try {
-      const [statsData, usersData] = await Promise.all([
-        apiCall('/admin/stats', {}, token),
-        apiCall('/admin/users', {}, token)
-      ]);
-      setStats(statsData);
-      setUsers(usersData.users);
-    } catch (error) {
-      console.error('Admin fetch error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAssignCoAdmin = async (userId) => {
-    try {
-      await apiCall('/admin/assign-coadmin', {
-        method: 'POST',
-        body: JSON.stringify({ userId })
-      }, token);
-      fetchAdminData(); // Refresh
-    } catch (error) {
-      alert(error.message);
-    }
-  };
-
-  if (loading) return <div className="flex-center" style={{ height: '200px' }}><div className="spinner"></div></div>;
-
-  return (
-    <div>
-      <div style={{ marginBottom: '2.5rem' }}>
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>Admin Panel</h1>
-        <p style={{ color: '#64748b', fontSize: '1.1rem' }}>Enterprise governance and delegation</p>
-      </div>
-
-      <div className="card" style={{ marginBottom: '2rem', background: 'linear-gradient(135deg, #1e293b, #0f172a)', color: 'white' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: '0.5rem' }}>Co-Admin Allocation</h3>
-            <p style={{ color: '#94a3b8' }}>Authorized delegate slots for enterprise governance</p>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#3b82f6' }}>
-              {stats?.coAdminAllocation.current} / {stats?.coAdminAllocation.max}
-            </div>
-            <div style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.1em' }}>Slots Filled</div>
-          </div>
-        </div>
-        <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', marginTop: '1.5rem', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${(stats?.coAdminAllocation.current / stats?.coAdminAllocation.max) * 100}%`, background: '#3b82f6' }}></div>
-        </div>
-      </div>
-
-      <div className="card" style={{ padding: 0 }}>
-        <div style={{ padding: '1.5rem', borderBottom: '1px solid #f1f5f9' }}>
-          <h3 style={{ fontWeight: 800 }}>User Management</h3>
-        </div>
-        <div className="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th style={{ paddingLeft: '2rem' }}>User</th>
-                <th>Role</th>
-                <th>Current Status</th>
-                <th style={{ paddingRight: '2rem', textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map(u => (
-                <tr key={u.id}>
-                  <td style={{ paddingLeft: '2rem' }}>
-                    <div style={{ fontWeight: 700 }}>{u.firstName} {u.lastName}</div>
-                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{u.email}</div>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: u.role === 'ADMIN' ? '#2563eb' : '#64748b' }}>
-                      {u.role.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="status-dot active"></span> Active
-                  </td>
-                  <td style={{ paddingRight: '2rem', textAlign: 'right' }}>
-                    {(u.role === 'PROPOSAL_MANAGER' || u.role === 'SOLUTION_ARCHITECT') && (
-                      <button 
-                        className="btn btn-secondary" 
-                        style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem' }}
-                        onClick={() => handleAssignCoAdmin(u.id)}
-                      >
-                        Assign Co-Admin
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const CreateRFPForm = ({ onCancel, onSuccess }) => {
   const { token } = useAuth();
   const [formData, setFormData] = useState({
@@ -1519,22 +1523,26 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (e, statusOverride) => {
+    if (e) e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
+      const submissionData = statusOverride 
+        ? { ...formData, status: statusOverride }
+        : formData;
+
       await apiCall('/rfps', {
         method: 'POST',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(submissionData)
       }, token);
 
       onSuccess();
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!statusOverride) setLoading(false);
     }
   };
 
@@ -1805,10 +1813,7 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
                 type="button" 
                 className="btn btn-primary" 
                 style={{ flex: 1, padding: '1rem', background: '#10b981', borderColor: '#10b981' }} 
-                onClick={(e) => {
-                  setFormData(prev => ({ ...prev, status: 'REVIEW' }));
-                  handleSubmit(e);
-                }}
+                onClick={(e) => handleSubmit(e, 'REVIEW')}
                 disabled={loading}
               >
                 {loading ? 'Submitting...' : 'Yes, I am satisfied (Send to Admin)'}
@@ -1817,10 +1822,7 @@ const CreateRFPForm = ({ onCancel, onSuccess }) => {
                 type="button" 
                 className="btn btn-secondary" 
                 style={{ flex: 1, padding: '1rem', color: '#ef4444', borderColor: '#fee2e2', background: '#fef2f2' }} 
-                onClick={(e) => {
-                  setFormData(prev => ({ ...prev, status: 'REJECTED' }));
-                  handleSubmit(e);
-                }}
+                onClick={(e) => handleSubmit(e, 'REJECTED')}
                 disabled={loading}
               >
                 {loading ? 'Rejecting...' : 'No, Request Technical Fix'}
@@ -2001,6 +2003,8 @@ const Dashboard = ({ data: propData, loading: propLoading, onRefresh, onViewRFP,
   const [internalData, setInternalData] = useState(() => {
     // Immediate restoration from cache for "Fast Load" feel
     const cached = localStorage.getItem('rfp_dash_cache');
+    // If the database was recently purged (we detect this via a reset flag or just empty check)
+    // We prioritize fresh truth over fast load.
     return cached ? JSON.parse(cached) : null;
   });
   const [internalLoading, setInternalLoading] = useState(!internalData);
@@ -2008,6 +2012,14 @@ const Dashboard = ({ data: propData, loading: propLoading, onRefresh, onViewRFP,
   // Use props if available, otherwise use internal state
   const data = propData || internalData;
   const loading = propData ? propLoading : (internalLoading && !internalData);
+
+  // CRITICAL: If props come in as empty, we MUST force internalData to null to clear cache artifacts
+  useEffect(() => {
+    if (propData) {
+      setInternalData(propData);
+      localStorage.setItem('rfp_dash_cache', JSON.stringify(propData));
+    }
+  }, [propData]);
 
   useEffect(() => {
     if (!propData) {
@@ -2019,22 +2031,40 @@ const Dashboard = ({ data: propData, loading: propLoading, onRefresh, onViewRFP,
     try {
       const result = await apiCall('/dashboard/executive', {}, token);
       setInternalData(result);
-      // Persist to cache
       localStorage.setItem('rfp_dash_cache', JSON.stringify(result));
     } catch (error) {
-      console.error('Failed to fetch dashboard:', error);
+      console.error('Dashboard fetch error:', error);
     } finally {
       setInternalLoading(false);
     }
   };
 
-  // If we have cached data, we show it instantly. If not, we show a clean skeleton grid.
-  if (!data && loading) {
+  if (loading && !data) return (
+    <div className="flex-center" style={{ height: '400px' }}>
+      <div className="spinner"></div>
+    </div>
+  );
+
+  // If data exists but has zero RFPs, show the Welcome State
+  if (!data || (data.kpis && data.kpis.activeRFPs === 0)) {
     return (
-      <div style={{ padding: '2rem' }}>
-        <div className="skeleton-title skeleton" style={{ marginBottom: '2rem' }}></div>
-        <div className="kpi-grid">
-          {[1,2,3,4].map(i => <div key={i} className="skeleton-card skeleton" style={{ height: '160px' }}></div>)}
+      <div className="dashboard-fade-in" style={{ padding: '3rem 1rem' }}>
+        <div style={{ maxWidth: '800px', margin: '0 auto', background: 'white', padding: '5rem 2rem', borderRadius: '40px', boxShadow: 'var(--shadow-premium)', border: 'var(--border-fine)', textAlign: 'center' }}>
+          <div style={{ width: '120px', height: '120px', background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', borderRadius: '35px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 2.5rem', transform: 'rotate(-5deg)' }}>
+             <FileText size={56} color="#2563eb" />
+          </div>
+          <h1 style={{ fontSize: '3rem', fontWeight: 950, color: '#0f172a', marginBottom: '1.5rem', letterSpacing: '-0.03em' }}>Ready for Operations</h1>
+          <p style={{ fontSize: '1.25rem', color: '#64748b', lineHeight: 1.6, marginBottom: '3rem', maxWidth: '500px', margin: '0 auto 3rem' }}>
+             The RFP Command Center has been reset. All systems are online. Submit your first proposal to activate global analytics.
+          </p>
+          <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center' }}>
+            <button className="btn btn-primary" onClick={onCreateRFP} style={{ padding: '1.25rem 2.5rem', fontSize: '1.1rem', borderRadius: '15px' }}>
+              Create First RFP
+            </button>
+            <button className="btn btn-secondary" onClick={onRefresh} style={{ padding: '1.25rem 2.5rem', fontSize: '1.1rem', borderRadius: '15px' }}>
+              Refresh Feed
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -2219,6 +2249,306 @@ const Dashboard = ({ data: propData, loading: propLoading, onRefresh, onViewRFP,
     </div>
   );
 };
+
+// ============================================
+// ADMIN PANEL COMPONENT
+// ============================================
+
+const AdminPanel = () => {
+  const { token } = useAuth();
+  const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [promoting, setPromoting] = useState(null);
+  const [demoting, setDemoting] = useState(null);
+  const [message, setMessage] = useState({ type: '', text: '' });
+
+  useEffect(() => {
+    fetchAdminData();
+  }, []);
+
+  const fetchAdminData = async () => {
+    setLoading(true);
+    try {
+      const [statsRes, usersRes] = await Promise.all([
+        apiCall('/admin/stats', {}, token),
+        apiCall('/admin/users', {}, token)
+      ]);
+      setStats(statsRes);
+      setUsers(usersRes.users || []);
+    } catch (error) {
+      console.error('Failed to fetch admin data:', error);
+      setMessage({ type: 'error', text: 'Failed to load admin data. Make sure you have admin privileges.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePromoteCoAdmin = async (userId) => {
+    setPromoting(userId);
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await apiCall('/admin/assign-coadmin', {
+        method: 'POST',
+        body: JSON.stringify({ userId })
+      }, token);
+      setMessage({ type: 'success', text: res.message || 'User promoted to Co-Admin.' });
+      await fetchAdminData();
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Failed to promote user.' });
+    } finally {
+      setPromoting(null);
+    }
+  };
+
+  const handleDemoteUser = async (userId) => {
+    setDemoting(userId);
+    setMessage({ type: '', text: '' });
+    try {
+      const res = await apiCall('/admin/demote-user', {
+        method: 'POST',
+        body: JSON.stringify({ userId })
+      }, token);
+      setMessage({ type: 'success', text: res.message || 'User demoted to Proposal Manager.' });
+      await fetchAdminData();
+    } catch (error) {
+      setMessage({ type: 'error', text: error.message || 'Failed to demote user.' });
+    } finally {
+      setDemoting(null);
+    }
+  };
+
+  const getRoleBadge = (role) => {
+    const styles = {
+      ADMIN: { bg: 'linear-gradient(135deg, #7c3aed, #6d28d9)', color: '#fff' },
+      CO_ADMIN: { bg: 'linear-gradient(135deg, #2563eb, #1d4ed8)', color: '#fff' },
+      PROPOSAL_MANAGER: { bg: '#eff6ff', color: '#2563eb' },
+      SOLUTION_ARCHITECT: { bg: '#f0fdf4', color: '#16a34a' },
+      BID_REVIEWER: { bg: '#fefce8', color: '#ca8a04' },
+      LEADERSHIP: { bg: '#fdf2f8', color: '#db2777' },
+      SUBJECT_MATTER_EXPERT: { bg: '#f5f3ff', color: '#7c3aed' }
+    };
+    const s = styles[role] || { bg: '#f1f5f9', color: '#475569' };
+    return (
+      <span style={{
+        background: s.bg,
+        color: s.color,
+        padding: '0.35rem 0.85rem',
+        borderRadius: '6px',
+        fontSize: '0.75rem',
+        fontWeight: 800,
+        letterSpacing: '0.03em',
+        textTransform: 'uppercase',
+        whiteSpace: 'nowrap'
+      }}>
+        {role.replace(/_/g, ' ')}
+      </span>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '6rem' }}>
+        <div className="spinner" style={{ margin: '0 auto' }}></div>
+      </div>
+    );
+  }
+
+  const coAdminAlloc = stats?.coAdminAllocation || { current: 0, max: 12, isFull: false };
+  const allocPercent = Math.min((coAdminAlloc.current / coAdminAlloc.max) * 100, 100);
+
+  return (
+    <div style={{ maxWidth: '1200px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2.5rem' }}>
+        <div>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.5rem' }}>Admin Panel</h1>
+          <p style={{ color: '#64748b', fontSize: '1.1rem' }}>System governance and user management</p>
+        </div>
+        <button className="btn btn-secondary" onClick={fetchAdminData} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.75rem 1.5rem', fontWeight: 800, borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+          <RefreshCw size={16} />
+          Refresh
+        </button>
+      </div>
+
+      {message.text && (
+        <div style={{
+          padding: '1rem 1.25rem',
+          borderRadius: '10px',
+          marginBottom: '2rem',
+          background: message.type === 'success' ? '#f0fdf4' : '#fef2f2',
+          color: message.type === 'success' ? '#166534' : '#991b1b',
+          border: `1px solid ${message.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+          fontWeight: 700,
+          fontSize: '0.95rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          animation: 'fadeIn 0.3s ease-out'
+        }}>
+          {message.type === 'success' ? <Shield size={18} /> : <AlertTriangle size={18} />}
+          {message.text}
+        </div>
+      )}
+
+      {/* Stats Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', marginBottom: '2rem' }}>
+        <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>Total Users</div>
+              <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>{stats?.totalUsers || 0}</div>
+            </div>
+            <div style={{ padding: '0.75rem', background: '#eff6ff', borderRadius: '12px', color: '#2563eb', border: '1px solid #dbeafe' }}>
+              <Users size={22} />
+            </div>
+          </div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(90deg, #2563eb, #3b82f6)' }}></div>
+        </div>
+
+        <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>Total RFPs</div>
+              <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>{stats?.totalRFPs || 0}</div>
+            </div>
+            <div style={{ padding: '0.75rem', background: '#f0fdf4', borderRadius: '12px', color: '#16a34a', border: '1px solid #bbf7d0' }}>
+              <FileText size={22} />
+            </div>
+          </div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(90deg, #16a34a, #22c55e)' }}></div>
+        </div>
+
+        <div className="card" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>Co-Admin Slots</div>
+              <div style={{ fontSize: '2.5rem', fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>{coAdminAlloc.current} <span style={{ fontSize: '1.25rem', color: '#94a3b8', fontWeight: 700 }}>/ {coAdminAlloc.max}</span></div>
+            </div>
+            <div style={{ padding: '0.75rem', background: coAdminAlloc.isFull ? '#fef2f2' : '#f5f3ff', borderRadius: '12px', color: coAdminAlloc.isFull ? '#dc2626' : '#7c3aed', border: `1px solid ${coAdminAlloc.isFull ? '#fecaca' : '#e9d5ff'}` }}>
+              <Shield size={22} />
+            </div>
+          </div>
+          <div style={{ marginTop: '1.25rem' }}>
+            <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${allocPercent}%`,
+                background: allocPercent >= 90 ? '#ef4444' : allocPercent >= 70 ? '#f59e0b' : 'linear-gradient(90deg, #7c3aed, #a78bfa)',
+                borderRadius: '4px',
+                transition: 'width 0.5s ease'
+              }}></div>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: coAdminAlloc.isFull ? '#ef4444' : '#64748b', fontWeight: 700, marginTop: '0.5rem' }}>
+              {coAdminAlloc.isFull ? '⚠ Allocation limit reached' : `${coAdminAlloc.max - coAdminAlloc.current} slots remaining`}
+            </div>
+          </div>
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '4px', background: 'linear-gradient(90deg, #7c3aed, #a78bfa)' }}></div>
+        </div>
+      </div>
+
+      {/* User Management Table */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '1.75rem 2rem', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ fontWeight: 800, fontSize: '1.15rem', color: '#0f172a', marginBottom: '0.25rem' }}>User Management</h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 600 }}>{users.length} registered users</p>
+          </div>
+        </div>
+        <div className="table-container">
+          <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+            <thead>
+              <tr>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>User</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Email</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Role</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Joined</th>
+                <th style={{ textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id} className="table-row-hover">
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{
+                        width: '36px', height: '36px',
+                        background: u.role === 'ADMIN' ? 'linear-gradient(135deg, #7c3aed, #6d28d9)' : u.role === 'CO_ADMIN' ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : 'linear-gradient(135deg, #64748b, #475569)',
+                        borderRadius: '10px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 800, fontSize: '0.9rem', color: 'white'
+                      }}>
+                        {u.firstName?.[0] || 'U'}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.95rem' }}>{u.firstName} {u.lastName}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ color: '#475569', fontSize: '0.9rem' }}>{u.email}</td>
+                  <td>{getRoleBadge(u.role)}</td>
+                  <td style={{ color: '#64748b', fontSize: '0.9rem' }}>{new Date(u.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                  <td>
+                    {u.role !== 'ADMIN' && u.role !== 'CO_ADMIN' && !coAdminAlloc.isFull ? (
+                      <button
+                        onClick={() => handlePromoteCoAdmin(u.id)}
+                        disabled={promoting === u.id}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px',
+                          padding: '0.45rem 1rem',
+                          background: promoting === u.id ? '#e2e8f0' : '#f5f3ff',
+                          color: '#7c3aed',
+                          border: '1px solid #e9d5ff',
+                          borderRadius: '8px',
+                          fontSize: '0.8rem',
+                          fontWeight: 800,
+                          cursor: promoting === u.id ? 'not-allowed' : 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => { if (promoting !== u.id) { e.currentTarget.style.background = '#ede9fe'; e.currentTarget.style.borderColor = '#c4b5fd'; } }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = '#f5f3ff'; e.currentTarget.style.borderColor = '#e9d5ff'; }}
+                      >
+                        {promoting === u.id ? (
+                          <><div className="spinner" style={{ width: '12px', height: '12px', margin: 0, borderWidth: '2px', borderTopColor: '#7c3aed' }}></div> Promoting...</>
+                        ) : (
+                          <><UserPlus size={14} /> Promote to Co-Admin</>
+                        )}
+                      </button>
+                    ) : u.role === 'ADMIN' ? (
+                      <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 700, fontStyle: 'italic' }}>Super Admin</span>
+                    ) : u.role === 'CO_ADMIN' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}><Shield size={13} /> Active</span>
+                        <button
+                          onClick={() => handleDemoteUser(u.id)}
+                          disabled={demoting === u.id}
+                          style={{
+                            padding: '0.35rem 0.8rem',
+                            background: '#fef2f2',
+                            color: '#ef4444',
+                            border: '1px solid #fee2e2',
+                            borderRadius: '8px',
+                            fontSize: '0.75rem',
+                            fontWeight: 800,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {demoting === u.id ? 'Undoing...' : 'Undo Promotion'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', color: '#94a3b8', fontWeight: 600 }}>Slots full</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SettingsView = () => {
   const { user, token, logout, updateUser } = useAuth();
   const [firstName, setFirstName] = useState(user?.firstName || '');
@@ -2332,31 +2662,52 @@ const AppLayout = () => {
   const [dashboardData, setDashboardData] = useState(null);
   const [rfpsData, setRfpsData] = useState([]);
   const [tasksData, setTasksData] = useState([]);
+  const [usersData, setUsersData] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notifications, setNotifications] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const lastFetchRef = useRef(0);
 
   useEffect(() => {
     if (token) fetchInitialData();
   }, [token]);
-
-  const fetchInitialData = async () => {
+  const fetchInitialData = async (force = false) => {
+    // High-performance caching: skip fetch if data is recent (< 30s) unless forced
+    const now = Date.now();
+    if (!force && lastFetchRef.current && (now - lastFetchRef.current < 30000)) return;
+    
     try {
-      // Background revalidation: fetch everything but don't show global spinner if we already have some data
-      const [dash, rfps, tasks, notify] = await Promise.all([
+      const isAdmin = user?.role === 'ADMIN';
+      const [dash, rfps, tasks, notify, users, allNotify] = await Promise.all([
         apiCall('/dashboard/executive', {}, token),
         apiCall('/rfps', {}, token),
         apiCall('/tasks', {}, token),
-        apiCall('/dashboard/my-rfps', {}, token)
+        apiCall('/notifications/unread', {}, token).catch(() => ({ unreadCount: 0 })),
+        isAdmin ? apiCall('/admin/users', {}, token).catch(() => []) : Promise.resolve([]),
+        apiCall('/notifications', {}, token).catch(() => [])
       ]);
+
+      const uniqueRfps = Array.from(new Map((rfps.rfps || rfps).map(item => [item.id, item])).values());
+      const uniqueTasks = Array.from(new Map((tasks.tasks || tasks).map(item => [item.id, item])).values());
+      const uniqueUsers = Array.from(new Map((users.users || users || []).map(item => [item.id, item])).values());
+
       setDashboardData(dash);
-      setRfpsData(rfps.rfps);
-      setTasksData(tasks.tasks);
-      setUnreadCount(notify.unreadCount || 0);
+      setRfpsData(uniqueRfps);
+      setTasksData(uniqueTasks);
+      setUnreadCount(notify.unreadCount || notify.count || 0);
+      setNotifications(allNotify.notifications || allNotify || []);
+      setUsersData(uniqueUsers);
+      lastFetchRef.current = now;
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('Failed to fetch initial data:', error);
     } finally {
       setDataLoading(false);
     }
+  };
+
+  const handleRefreshAll = () => {
+    fetchInitialData(true);
   };
 
   const refreshDashboard = async () => {
@@ -2393,6 +2744,7 @@ const AppLayout = () => {
   };
 
   const handleBackToList = () => {
+    handleRefreshAll();
     setCurrentView('rfps');
     setSelectedRFPId(null);
   };
@@ -2401,7 +2753,9 @@ const AppLayout = () => {
     setCurrentView('create-rfp');
   };
 
-  const handleRFPCreated = () => {
+  const handleRFPCreated = async () => {
+    setDataLoading(true);
+    await fetchInitialData();
     setCurrentView('rfps');
   };
 
@@ -2425,14 +2779,23 @@ const AppLayout = () => {
               <button
                 key={item.id}
                 className={`nav-item ${currentView === item.id || (currentView === 'rfp-detail' && item.id === 'rfps') ? 'active' : ''}`}
-                onClick={() => setCurrentView(item.id)}
+                onClick={() => {
+                  setCurrentView(item.id);
+                  handleRefreshAll();
+                }}
               >
                 <Icon size={20} />
                 {item.label}
               </button>
             );
           })}
-          <button className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} onClick={() => setCurrentView('settings')}>
+          <button 
+            className={`nav-item ${currentView === 'settings' ? 'active' : ''}`} 
+            onClick={() => {
+              setCurrentView('settings');
+              handleRefreshAll();
+            }}
+          >
             <Settings size={20} />
             Settings
           </button>
@@ -2468,16 +2831,60 @@ const AppLayout = () => {
               currentView === 'rfps' ? 'RFPs' :
                 currentView === 'tasks' ? 'Tasks' :
                   currentView === 'settings' ? 'Settings' :
-                    currentView === 'rfp-detail' ? 'RFPs' : 'Dashboard'}
+                    currentView === 'admin-panel' ? 'Admin Panel' :
+                      currentView === 'rfp-detail' ? 'RFPs' : 'Dashboard'}
           </div>
 
           <div className="topbar-right">
-            <div style={{ position: 'relative', cursor: 'pointer', padding: '0.5rem', borderRadius: '8px' }}>
+            <div 
+              style={{ position: 'relative', cursor: 'pointer', padding: '0.5rem', borderRadius: '8px' }}
+              onClick={() => setShowNotifications(!showNotifications)}
+            >
               <Bell size={22} color="#64748b" />
               {unreadCount > 0 && (
                 <span style={{ position: 'absolute', top: 2, right: 2, background: '#ef4444', color: 'white', width: '18px', height: '18px', borderRadius: '50%', fontSize: '0.7rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, border: '2px solid white' }}>
                   {unreadCount}
                 </span>
+              )}
+              
+              {showNotifications && (
+                <div 
+                  className="card" 
+                  style={{ 
+                    position: 'absolute', top: '100%', right: 0, width: '320px', zIndex: 1000, marginTop: '10px', 
+                    padding: '0', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                    overflow: 'hidden', border: 'var(--border-fine)'
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div style={{ padding: '1rem', borderBottom: 'var(--border-fine)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                    <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>Notifications</span>
+                    <button 
+                      style={{ border: 'none', background: 'transparent', color: '#2563eb', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                      onClick={async () => {
+                        await apiCall('/notifications/read-all', { method: 'POST' }, token);
+                        handleRefreshAll();
+                      }}
+                    >
+                      Mark all as read
+                    </button>
+                  </div>
+              <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                {notifications.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>No new notifications</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {notifications.slice(0, 10).map((n) => (
+                      <div key={n.id} style={{ padding: '1rem', borderBottom: 'var(--border-fine)', background: n.isRead ? 'transparent' : '#f0f9ff' }}>
+                        <div style={{ fontWeight: 800, fontSize: '0.8rem', color: '#0f172a', marginBottom: '0.2rem' }}>{n.title}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.4 }}>{n.message}</div>
+                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.4rem', fontWeight: 600 }}>{new Date(n.createdAt).toLocaleString()}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+                </div>
               )}
             </div>
 
@@ -2544,7 +2951,7 @@ const AppLayout = () => {
             <Dashboard data={dashboardData} loading={dataLoading} onRefresh={refreshDashboard} onViewRFP={handleViewRFP} onCreateRFP={handleCreateRFP} />
           </div>
           <div className={`view-container ${currentView === 'rfps' ? '' : 'hidden'}`}>
-            <RFPList initialRfps={rfpsData} loading={dataLoading} onViewRFP={handleViewRFP} onCreateRFP={handleCreateRFP} onRefresh={refreshRFPs} />
+            <RFPList initialRfps={rfpsData} users={usersData} loading={dataLoading} onViewRFP={handleViewRFP} onCreateRFP={handleCreateRFP} onRefresh={refreshRFPs} />
           </div>
           <div className={`view-container ${currentView === 'tasks' ? '' : 'hidden'}`}>
             <TasksView initialTasks={tasksData} loading={dataLoading} onRefresh={refreshTasks} />
@@ -2604,3 +3011,5 @@ function MainApp() {
 }
 
 export default App;
+ 
+// Cache Purge Force

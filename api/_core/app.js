@@ -54,11 +54,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rate limiting - Basic DDoS protection
+// Rate limiting - Optimized for High-Concurrency
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+  windowMs: 15 * 60 * 1000, 
+  max: 2000, 
+  message: { error: 'TOO_MANY_REQUESTS', message: 'Rate limit exceeded. Please wait a moment.' }
 });
 app.use('/api/', limiter);
 

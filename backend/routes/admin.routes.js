@@ -10,5 +10,6 @@ router.use(authorize('ADMIN'));
 router.get('/stats', adminController.getStats);
 router.get('/users', adminController.getAllUsers);
 router.post('/assign-coadmin', adminController.assignCoAdmin);
+router.post('/demote-user', adminController.demoteUser);
 
 module.exports = router;

@@ -152,12 +152,12 @@ const analyzeRFP = async (req, res) => {
         const { GoogleGenAI } = require('@google/genai');
         const client = new GoogleGenAI({ apiKey: geminiKey });
         
-        // Use 1.5 Flash as it is highly stable in the free tier
-        const model = 'gemini-1.5-flash';
-        const modelInstance = client.getGenerativeModel({ model });
-        const result = await modelInstance.generateContent(finalPrompt);
-        
-        const generatedText = result.response.text();
+        const result = await client.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: finalPrompt,
+        });
+
+        const generatedText = result.text;
 
         if (generatedText) {
           console.log(`[AI] Gemini Success!`);
