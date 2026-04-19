@@ -125,9 +125,29 @@ const markAllAsRead = async (req, res) => {
   }
 };
 
+/**
+ * Get unread notifications count
+ * GET /api/notifications/unread
+ */
+const getUnreadCount = async (req, res) => {
+  try {
+    const unreadCount = await prisma.notification.count({
+      where: {
+        userId: req.user.id,
+        isRead: false
+      }
+    });
+    res.status(200).json({ unreadCount });
+  } catch (error) {
+    console.error('Get unread count error:', error);
+    res.status(500).json({ error: 'Failed' });
+  }
+};
+
 module.exports = {
   getActivities,
   getNotifications,
   markAsRead,
-  markAllAsRead
+  markAllAsRead,
+  getUnreadCount
 };

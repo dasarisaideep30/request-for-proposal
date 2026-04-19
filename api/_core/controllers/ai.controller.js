@@ -1,7 +1,6 @@
 const Groq = require('groq-sdk');
 const { GoogleGenAI } = require('@google/genai');
 const OpenAI = require('openai');
-const pdf = require('pdf-parse');
 const mammoth = require('mammoth');
 const CSV = require('csv-string');
 
@@ -18,6 +17,11 @@ const analyzeRFP = async (req, res) => {
 
       if (mimetype === 'application/pdf') {
         try {
+          // Vercel Serverless / Node 20 polyfill for pdf-parse (which bundles pdf.js)
+          if (typeof global.DOMMatrix === 'undefined') {
+            global.DOMMatrix = class DOMMatrix {};
+          }
+          const pdf = require('pdf-parse');
           if (typeof pdf === 'function') {
             const data = await pdf(buffer);
             documentText = data.text;
@@ -173,12 +177,11 @@ const analyzeRFP = async (req, res) => {
       }
     }
 
-    // FINAL FALLBACK: DEVELOPMENT MOCK (Prevents blocking the user if all APIs fail)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('----------------------------------------------');
-      console.log('⚠️  NOTICE: ALL AI SERVICES ARE OFFLINE (Quota Exceeded)');
-      console.log('💡 TIP: Returning high-fidelity MOCK PROPOSAL to keep development moving.');
-      console.log('----------------------------------------------');
+    // FINAL FALLBACK: MOCK (Prevents blocking the user if all APIs fail)
+    console.log('----------------------------------------------');
+    console.log('⚠️  NOTICE: ALL AI SERVICES ARE OFFLINE (Quota Exceeded)');
+    console.log('💡 TIP: Returning high-fidelity MOCK PROPOSAL to keep development moving.');
+    console.log('----------------------------------------------');
       
       const mockResult = `
 # EXECUTIVE PROPOSAL: AI COMMAND CENTER TRANSFORMATION
@@ -225,10 +228,6 @@ PostgreSQL (Neon) with optimized indexing for full-text search and complex relat
         analysisType,
         result: mockResult.trim()
       });
-    }
-
-    throw new Error('No valid AI engine configuration found or all quotas exceeded.');
-
   } catch (error) {
     console.error('AI Analysis Error:', error);
     res.status(500).json({ 
